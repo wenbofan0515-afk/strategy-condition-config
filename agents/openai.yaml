@@ -1,0 +1,4 @@
+interface:
+  display_name: "策略条件配置"
+  short_description: "检查、配置和验收识货任务分发策略条件"
+  default_prompt: "使用 $strategy-condition-config 检查或配置识货任务分发策略；先做写前预检，确认后再写入并回读验收。"
