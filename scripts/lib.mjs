@@ -14,37 +14,44 @@ export function resolveRpaRoot() {
 export function loadPlan(file) {
   const plan = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
   if (!plan || !Array.isArray(plan.operations)) throw new Error('计划缺少 operations');
+  if (!plan.operations.length) throw new Error('计划没有可执行操作');
+  for (const operation of plan.operations) {
+    if (!operation.vertical || (!operation.priority_name && operation.priority_id == null)) throw new Error('操作必须明确垂类和优先级');
+    if (plan.scope?.verticals?.length && !plan.scope.verticals.includes(operation.vertical)) throw new Error('操作超出确认范围');
+    if (plan.scope?.excluded_verticals?.includes(operation.vertical)) throw new Error('操作命中排除垂类');
+    applyPatch({}, operation.patch);
+  }
   return plan;
 }
 
 export function clone(value) { return JSON.parse(JSON.stringify(value)); }
-export function stable(value) { return JSON.stringify(value); }
+export function stable(value) {
+  return JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
+}
 
 export function allLevels(detail) {
   return [
     ...(detail.level_ordinary?.data || []),
-    ...(detail.level_unlimit?.data || []),
-    ...(detail.level_un_limit?.data || []),
+    ...(detail.level_unlimit?.data ?? detail.level_un_limit?.data ?? []),
     ...(detail.level_define?.data || []),
   ];
 }
 
 export function findPriority(detail, operation) {
   const levels = allLevels(detail).filter((level) =>
-    operation.level_name ? level.name === operation.level_name : true,
+    (!operation.level_name || level.name === operation.level_name) &&
+    (operation.level_id == null || String(level.deal_level_id) === String(operation.level_id)),
   );
-  if (levels.length !== 1) {
-    throw new Error(`${operation.vertical} 目标处理等级数量=${levels.length}`);
-  }
-  const priorities = (levels[0].priority || []).filter((priority) => {
+  const priorities = levels.flatMap((level) => (level.priority || []).filter((priority) => {
     if (operation.priority_id != null && String(priority.priority_id) !== String(operation.priority_id)) return false;
     if (operation.priority_name && String(priority.priority_name_show || '').trim() !== operation.priority_name) return false;
     return true;
-  });
+  }).map((priority) => ({ level, priority })));
   if (priorities.length !== 1) {
     throw new Error(`${operation.vertical} 目标优先级数量=${priorities.length}`);
   }
-  return { level: levels[0], priority: priorities[0] };
+  return priorities[0];
 }
 
 function conditionObject(existing, field, patch) {
@@ -58,6 +65,12 @@ function conditionObject(existing, field, patch) {
 }
 
 export function applyPatch(priority, patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('patch 必须为对象');
+  const allowed = new Set(['condition_fields', 'goods_id', 'channel_id', 'supplier_nums', 'is_black']);
+  for (const key of Object.keys(patch)) if (!allowed.has(key)) throw new Error(`不支持的 patch 字段：${key}`);
+  if (!patchedKeys(patch).length) throw new Error('patch 不能为空');
+  if (new Set(patchedKeys(patch)).size !== patchedKeys(patch).length) throw new Error('重复条件字段');
+  if (patch.channel_id !== undefined && !/^\d+(,\d+)*$/.test(String(patch.channel_id))) throw new Error('channel_id 必须为集合ID或逗号分隔ID');
   const result = clone(priority);
   const fields = patch?.condition_fields || [];
   if (!Array.isArray(fields)) throw new Error('patch.condition_fields 必须为数组');
@@ -65,7 +78,7 @@ export function applyPatch(priority, patch) {
   result.special_form_data ||= {};
   result.condition ||= {};
   for (const field of fields) {
-    if (!field?.key || field.value === undefined) throw new Error('条件 patch 缺少 key/value');
+    if (!field?.key || ['__proto__', 'constructor', 'prototype'].includes(field.key) || field.value === undefined) throw new Error('条件 patch 缺少有效 key/value');
     const formValue = field.form_value !== undefined ? field.form_value : field.value;
     const specialValue = field.special_value !== undefined ? field.special_value : formValue;
     result.form_data[field.key] = clone(formValue);

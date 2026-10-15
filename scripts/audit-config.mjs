@@ -11,6 +11,7 @@ const result = { verticals: [], errors: [] };
 try {
   await ensureLogin(session.page, LIST_PAGE_URL, { timeoutSeconds: 20 });
   const verticals = await getVerticalList(session.page);
+  for (const name of requested) if (!verticals.some((item) => item.vertical_name === name)) result.errors.push({ vertical: name, error: '未找到指定垂类' });
   const targets = requested.length ? verticals.filter((x) => requested.includes(x.vertical_name)) : verticals;
   for (const vertical of targets) {
     try {
