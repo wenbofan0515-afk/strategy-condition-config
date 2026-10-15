@@ -62,12 +62,28 @@ metadata:
 
 ## 工具入口
 
+### 能力边界与安装后检查
+
+Skill 可独立安装，但后台执行脚本不是独立后台客户端：需要另行提供现有 `level_config_rpa` 项目及其依赖和有效登录态。安装 Skill 不会自动安装该项目或取得权限，也不包含任何人的登录数据。
+
+先运行 `node scripts/doctor.mjs` 检查依赖，再运行离线测试 `node --test scripts/config.test.mjs`。doctor 不触发登录、不访问后台。缺少依赖时只解析需求，停止后台执行，不临时重建认证链路。
+
+当前通用脚本只支持**已有优先级的条件修改**。创建/复制、改名、等级/优先级排序、处理人恢复、混排修改和飞书截图登记需要按对应 reference 使用已核实的专用工具另行执行；不能以条件保存成功代替这些步骤完成。`mix`/`registration` 在计划中仅作待办信息，脚本不会执行它们。
+
+`goods_id` patch 为完整目标值，直接替换字段；需要增量追加时，必须先读当前 ID，与最新批次求并集，再把并集作为目标值。用户明确要求替换时不能保留历史 ID。
+
 通用审计和计划执行脚本位于 `scripts/`。它们通过 `STRATEGY_CONFIG_RPA_ROOT` 指向现有 `level_config_rpa`；未设置时尝试当前项目下的 `level_config_rpa`。执行写入必须同时提供计划文件和 `--yes`。
 
 - `preflight-config.mjs`：读取计划并生成只读变更摘要。
 - `apply-config.mjs`：执行已确认计划，保存前快照、逐项保存、逐项回读。
 - `audit-config.mjs`：全垂类或指定垂类只读审计。
 - `verify-config.mjs`：对保存结果执行结构化验收。
+
+计划中每个操作必须指定 `vertical`、`priority_id`（或唯一 `priority_name`）及非空 `patch`；建议同时指定 `level_id`。只支持 `condition_fields`、`goods_id`、`channel_id`、`supplier_nums`、`is_black`，其他字段拒绝执行。底层字段值和操作符必须来自当前后台字段元数据或已核实的原配置，不能猜编码。
+
+保存以完整处理等级为单位，同等级多个目标合并一次保存。写前持久化快照，再读等级确认未变化；发现并发变化或回读不一致立即停止，不自动回滚、不继续下一等级。读取与保存之间无法原子锁定，批量操作期间应避免人工同时编辑。
+
+复验使用 `node scripts/verify-config.mjs <plan.json> --before <写前快照.json>`，比较整个等级（含其他优先级、处理人和顺序）。未提供快照只能证明当前目标条件符合计划，不能证明其他内容未变。结果必须分别说明条件保存、混排核验和截图登记状态；未执行项写“未执行”，不得汇总为全部完成。
 
 详细规则：
 
