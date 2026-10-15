@@ -1,0 +1,15 @@
+{
+  "task": "专项名称",
+  "source": {
+    "sheet_url": "",
+    "sheet_id": "",
+    "revision": null,
+    "notes": ""
+  },
+  "scope": {
+    "verticals": [],
+    "excluded_verticals": []
+  },
+  "operations": [],
+  "confirmation": {"confirmed": false, "confirmed_at": null}
+}
