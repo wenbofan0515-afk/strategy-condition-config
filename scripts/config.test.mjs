@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyPatch, clone, findPriority, stable, validatePatch, conditionIssues } from './lib.mjs';
+import { applyPatch, clone, findPriority, stable, validatePatch, conditionIssues, levelConfiguration, mixConfiguration } from './lib.mjs';
+
+test('混排计数独立于引用、顺序和处理人验收', () => {
+  const base = { data: [{ priority: [{ priority_id: 1, finish_task_nums: 16, handler: 'original' }, { priority_id: 2 }] }] };
+  const current = clone(base);
+  current.data[0].priority[0].finish_task_nums = 18;
+  assert.equal(stable(mixConfiguration(base)), stable(mixConfiguration(current)));
+  current.data[0].priority.reverse();
+  assert.notEqual(stable(mixConfiguration(base)), stable(mixConfiguration(current)));
+  current.data[0].priority.reverse();
+  current.data[0].priority[0].handler = 'changed';
+  assert.notEqual(stable(mixConfiguration(base)), stable(mixConfiguration(current)));
+});
 import { prepareChanges, executeGroups } from './execute-plan.mjs';
 
 const priority = (id) => ({ priority_id: id, priority_name_show: '集合115851', handler: [42], sort: 'goods_id asc', form_data: { goods_id: '1,2' }, special_form_data: { goods_id: '1,2' }, condition: { goods_id: { value: '1,2' } } });
@@ -81,6 +93,15 @@ test('实时计数排除不掩盖限额、处理人、条件与顺序变化', as
     await assert.rejects(executeGroups(prepare(), { read: async () => d, save: async () => calls++ }), /不一致/);
     assert.equal(calls, 0);
   }
+});
+test('保存自动更新时间不冒充配置变化，但更新人和无效时间值仍比较', () => {
+  const base = detail().level_unlimit.data[0], changed = clone(base);
+  changed.updated = '2026-11-04 10:28:15'; changed.updated_time = '2026-11-04T10:28:15.115+08:00';
+  assert.equal(stable(levelConfiguration(changed)), stable(levelConfiguration(base)));
+  changed.updated_by = 99;
+  assert.notEqual(stable(levelConfiguration(changed)), stable(levelConfiguration(base)));
+  delete changed.updated_by; changed.updated = 'unknown';
+  assert.notEqual(stable(levelConfiguration(changed)), stable(levelConfiguration(base)));
 });
 
 test('缺失、null、空及部分残缺的条件对象均拒绝，所有快捷分支适用', () => {

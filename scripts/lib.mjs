@@ -33,6 +33,9 @@ export function stable(value) {
 // These API response counters change while workers process tasks; they are not configuration.
 export function levelConfiguration(level) {
   const result = clone(level);
+  // The server updates these level timestamps after every save. Never omit actor fields.
+  if (typeof result.updated_time === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(result.updated_time)) delete result.updated_time;
+  if (typeof result.updated === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(result.updated)) delete result.updated;
   for (const object of [result, ...(result.priority || [])]) {
     for (const key of ['task_nums', 'finish_task_nums', 'pending_task_nms']) delete object[key];
   }
@@ -49,6 +52,13 @@ export function carryLiveCounters(expected, fresh) {
       else delete target[key];
     }
   }
+  return result;
+}
+
+export function mixConfiguration(mix) {
+  if (mix == null) return mix;
+  const result = clone(mix);
+  if (Array.isArray(result.data)) result.data = result.data.map(levelConfiguration);
   return result;
 }
 
