@@ -14,37 +14,44 @@ export function resolveRpaRoot() {
 export function loadPlan(file) {
   const plan = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
   if (!plan || !Array.isArray(plan.operations)) throw new Error('计划缺少 operations');
+  if (!plan.operations.length) throw new Error('计划没有可执行操作');
+  for (const operation of plan.operations) {
+    if (!operation.vertical || (!operation.priority_name && operation.priority_id == null)) throw new Error('操作必须明确垂类和优先级');
+    if (plan.scope?.verticals?.length && !plan.scope.verticals.includes(operation.vertical)) throw new Error('操作超出确认范围');
+    if (plan.scope?.excluded_verticals?.includes(operation.vertical)) throw new Error('操作命中排除垂类');
+    validatePatch(operation.patch);
+  }
   return plan;
 }
 
 export function clone(value) { return JSON.parse(JSON.stringify(value)); }
-export function stable(value) { return JSON.stringify(value); }
+export function stable(value) {
+  return JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
+}
 
 export function allLevels(detail) {
   return [
     ...(detail.level_ordinary?.data || []),
-    ...(detail.level_unlimit?.data || []),
-    ...(detail.level_un_limit?.data || []),
+    ...(detail.level_unlimit?.data ?? detail.level_un_limit?.data ?? []),
     ...(detail.level_define?.data || []),
   ];
 }
 
 export function findPriority(detail, operation) {
   const levels = allLevels(detail).filter((level) =>
-    operation.level_name ? level.name === operation.level_name : true,
+    (!operation.level_name || level.name === operation.level_name) &&
+    (operation.level_id == null || String(level.deal_level_id) === String(operation.level_id)),
   );
-  if (levels.length !== 1) {
-    throw new Error(`${operation.vertical} 目标处理等级数量=${levels.length}`);
-  }
-  const priorities = (levels[0].priority || []).filter((priority) => {
+  const priorities = levels.flatMap((level) => (level.priority || []).filter((priority) => {
     if (operation.priority_id != null && String(priority.priority_id) !== String(operation.priority_id)) return false;
     if (operation.priority_name && String(priority.priority_name_show || '').trim() !== operation.priority_name) return false;
     return true;
-  });
+  }).map((priority) => ({ level, priority })));
   if (priorities.length !== 1) {
     throw new Error(`${operation.vertical} 目标优先级数量=${priorities.length}`);
   }
-  return { level: levels[0], priority: priorities[0] };
+  return priorities[0];
 }
 
 function conditionObject(existing, field, patch) {
@@ -57,15 +64,56 @@ function conditionObject(existing, field, patch) {
   };
 }
 
+const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const hasValue = (value) => value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0);
+
+// Presence is structural evidence only; different encodings require verified field metadata.
+export function conditionIssues(priority) {
+  const names = ['form_data', 'special_form_data', 'condition'];
+  const issues = [];
+  for (const name of names) if (!isRecord(priority?.[name])) issues.push(`${name} 缺失或不是对象`);
+  if (issues.length) return issues;
+  const keys = new Set(names.flatMap((name) => Object.keys(priority[name])));
+  for (const key of keys) {
+    // Full form defaults legitimately have no entry in the active condition map.
+    if (!Object.hasOwn(priority.condition, key) && !hasValue(priority.form_data[key]) && !hasValue(priority.special_form_data[key])) continue;
+    for (const name of names) {
+      if (!Object.hasOwn(priority[name], key) || priority[name][key] === undefined) issues.push(`${name}.${key} 缺失`);
+    }
+    if (hasValue(priority.form_data[key]) !== hasValue(priority.special_form_data[key])) issues.push(`${key} 两处表单的有效值覆盖不一致`);
+    if (Object.hasOwn(priority.condition, key) && (!isRecord(priority.condition[key]) || !Object.hasOwn(priority.condition[key], 'value') || priority.condition[key].value === undefined)) issues.push(`condition.${key}.value 缺失或结构无效`);
+  }
+  return issues;
+}
+
+export function assertConditionStructure(priority) {
+  const issues = conditionIssues(priority);
+  if (issues.length) throw new Error(`优先级 ${priority?.priority_id ?? '(未知)'} 条件结构不完整，停止写入；需按 schema 核实映射，禁止自动补空：${issues.join('；')}`);
+}
+
+export function validatePatch(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('patch 必须为对象');
+  const allowed = new Set(['condition_fields', 'goods_id', 'channel_id', 'supplier_nums', 'is_black']);
+  for (const key of Object.keys(patch)) if (!allowed.has(key)) throw new Error(`不支持的 patch 字段：${key}`);
+  if (patch.condition_fields !== undefined && !Array.isArray(patch.condition_fields)) throw new Error('patch.condition_fields 必须为数组');
+  for (const field of patch.condition_fields || []) {
+    if (!isRecord(field) || typeof field.key !== 'string' || !field.key || ['__proto__', 'constructor', 'prototype'].includes(field.key) || field.value === undefined) throw new Error('条件 patch 缺少有效 key/value');
+    for (const key of Object.keys(field)) if (!['key', 'value', 'form_value', 'special_value', 'title', 'show_name'].includes(key)) throw new Error(`不支持的条件 patch 属性：${key}`);
+  }
+  if (!patchedKeys(patch).length) throw new Error('patch 不能为空');
+  if (new Set(patchedKeys(patch)).size !== patchedKeys(patch).length) throw new Error('重复条件字段');
+  if (patch.channel_id !== undefined && !/^\d+(,\d+)*$/.test(String(patch.channel_id))) throw new Error('channel_id 必须为集合ID或逗号分隔ID');
+  for (const key of ['supplier_nums', 'is_black']) if (patch[key] === null) throw new Error(`${key} 不接受 null`);
+}
+
 export function applyPatch(priority, patch) {
+  validatePatch(patch);
+  assertConditionStructure(priority);
   const result = clone(priority);
   const fields = patch?.condition_fields || [];
   if (!Array.isArray(fields)) throw new Error('patch.condition_fields 必须为数组');
-  result.form_data ||= {};
-  result.special_form_data ||= {};
-  result.condition ||= {};
   for (const field of fields) {
-    if (!field?.key || field.value === undefined) throw new Error('条件 patch 缺少 key/value');
+    if (!field?.key || ['__proto__', 'constructor', 'prototype'].includes(field.key) || field.value === undefined) throw new Error('条件 patch 缺少有效 key/value');
     const formValue = field.form_value !== undefined ? field.form_value : field.value;
     const specialValue = field.special_value !== undefined ? field.special_value : formValue;
     result.form_data[field.key] = clone(formValue);
@@ -105,6 +153,8 @@ export function applyPatch(priority, patch) {
       title: '分发黑名单', value, show_name: value,
     });
   }
+  assertConditionStructure(result);
+  if (stable(stripPatchedFields(priority, patch)) !== stable(stripPatchedFields(result, patch))) throw new Error('非目标字段发生变化，停止写入');
   return result;
 }
 

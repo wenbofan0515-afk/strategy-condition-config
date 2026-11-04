@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
-import { resolveRpaRoot, allLevels } from './lib.mjs';
+import { resolveRpaRoot, allLevels, conditionIssues } from './lib.mjs';
 
 const requested = process.argv.slice(2).filter((x) => !x.startsWith('--'));
 const root = resolveRpaRoot();
 const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = await import(pathToFileURL(`${root}/src/browser_api.js`));
 const { LIST_PAGE_URL } = await import(pathToFileURL(`${root}/src/constants.js`));
 const session = await openBrowser({ userDataDir: `${root}/.browser-profile`, headless: true });
-const result = { verticals: [], errors: [] };
+const result = { verticals: [], errors: [], condition_issues: [] };
 try {
   await ensureLogin(session.page, LIST_PAGE_URL, { timeoutSeconds: 20 });
   const verticals = await getVerticalList(session.page);
+  for (const name of requested) if (!verticals.some((item) => item.vertical_name === name)) result.errors.push({ vertical: name, error: '未找到指定垂类' });
   const targets = requested.length ? verticals.filter((x) => requested.includes(x.vertical_name)) : verticals;
   for (const vertical of targets) {
     try {
       const detail = await getVerticalDetail(session.page, vertical.id);
       const levels = allLevels(detail);
+      for (const level of levels) for (const priority of level.priority || []) {
+        const issues = conditionIssues(priority);
+        if (issues.length) result.condition_issues.push({ vertical: vertical.vertical_name, level_id: level.deal_level_id, priority_id: priority.priority_id, issues });
+      }
       result.verticals.push({
         vertical: vertical.vertical_name,
         list_id: vertical.id,
@@ -31,4 +36,4 @@ try {
   }
 } finally { await session.browser.close(); }
 console.log(JSON.stringify(result, null, 2));
-if (result.errors.length) process.exitCode = 1;
+if (result.errors.length || result.condition_issues.length) process.exitCode = 1;

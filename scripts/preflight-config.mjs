@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 import { loadPlan, resolveRpaRoot, findPriority, applyPatch, fieldSummary, patchedKeys, stable } from './lib.mjs';
+import { prepareChanges } from './execute-plan.mjs';
 
 const file = process.argv[2];
 if (!file) throw new Error('用法：node preflight-config.mjs <plan.json>');
@@ -13,11 +14,13 @@ const result = { task: plan.task, confirmed: plan.confirmation?.confirmed === tr
 try {
   await ensureLogin(session.page, LIST_PAGE_URL, { timeoutSeconds: 20 });
   const verticals = await getVerticalList(session.page);
+  const snapshots = [];
   for (const operation of plan.operations) {
     try {
       const vertical = verticals.find((item) => item.vertical_name === operation.vertical);
       if (!vertical) throw new Error('未找到垂类');
       const detail = await getVerticalDetail(session.page, vertical.id);
+      if (!snapshots.some((item) => item.vertical === operation.vertical)) snapshots.push({ vertical: operation.vertical, verticalId: vertical.id, detail });
       const target = findPriority(detail, operation);
       const modified = applyPatch(target.priority, operation.patch || {});
       result.operations.push({
@@ -34,6 +37,10 @@ try {
     } catch (error) {
       result.errors.push({ vertical: operation.vertical, error: String(error.message || error) });
     }
+  }
+  if (!result.errors.length) {
+    try { prepareChanges(plan, snapshots); }
+    catch (error) { result.errors.push({ error: error.message }); }
   }
 } finally {
   await session.browser.close();
