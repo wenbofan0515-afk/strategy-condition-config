@@ -62,6 +62,27 @@ test('回读发现非目标变化时停止后续写入', async () => {
 });
 test('结构比较不依赖对象键顺序', () => assert.equal(stable({ a: 1, b: 2 }), stable({ b: 2, a: 1 })));
 
+test('实时计数变化不冒充配置并发，保存使用最新计数并容许写后继续增长', async () => {
+  const groups = prepare(); let current = detail(), calls = 0;
+  current.level_unlimit.data[0].task_nums = 100;
+  current.level_unlimit.data[0].priority[0].finish_task_nums = 10;
+  await executeGroups(groups, { read: async () => clone(current), save: async (_, level) => {
+    calls++; assert.equal(level.task_nums, 100); assert.equal(level.priority[0].finish_task_nums, 10);
+    current.level_unlimit.data[0] = level;
+    current.level_unlimit.data[0].priority[0].finish_task_nums++;
+  } });
+  assert.equal(calls, 1);
+});
+test('实时计数排除不掩盖限额、处理人、条件与顺序变化', async () => {
+  for (const mutate of [l => l.expected_limit = 1, l => l.priority[0].handler = [99],
+    l => l.priority.reverse(), l => l.priority[0].form_data.goods_id = '9',
+    l => l.priority[0].condition.task_nums = { value: 99 }]) {
+    const d = detail(); mutate(d.level_unlimit.data[0]); let calls = 0;
+    await assert.rejects(executeGroups(prepare(), { read: async () => d, save: async () => calls++ }), /不一致/);
+    assert.equal(calls, 0);
+  }
+});
+
 test('缺失、null、空及部分残缺的条件对象均拒绝，所有快捷分支适用', () => {
   const patches = [{ channel_id: '115851' }, { goods_id: '3' }, { supplier_nums: ['2', 3] }, { is_black: 0 }, { condition_fields: [{ key: 'goods_created_at', value: ['2026-09-01', '2026-12-31'] }] }];
   for (const name of ['form_data', 'special_form_data', 'condition']) {

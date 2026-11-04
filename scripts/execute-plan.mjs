@@ -1,4 +1,4 @@
-import { clone, findPriority, applyPatch, stable, assertConditionStructure } from './lib.mjs';
+import { clone, findPriority, applyPatch, stable, assertConditionStructure, levelConfiguration, carryLiveCounters } from './lib.mjs';
 
 // Save whole levels once, so multiple patches cannot overwrite each other.
 export function prepareChanges(plan, snapshots) {
@@ -29,7 +29,7 @@ export function prepareChanges(plan, snapshots) {
 
 export function assertLevel(detail, group, expected) {
   const target = findPriority(detail, { vertical: group.vertical, level_id: group.before.deal_level_id, priority_id: group.operations[0].priority_id });
-  if (stable(target.level) !== stable(expected)) throw new Error(`${group.vertical} 完整处理等级不一致（条件/处理人/顺序/其他优先级）`);
+  if (stable(levelConfiguration(target.level)) !== stable(levelConfiguration(expected))) throw new Error(`${group.vertical} 完整处理等级不一致（条件/处理人/顺序/其他优先级）`);
   for (const priority of target.level.priority || []) assertConditionStructure(priority);
 }
 
@@ -53,7 +53,8 @@ export async function executeGroups(groups, adapter, onSaved = () => {}) {
     assertLevel(fresh, group, group.before);
     if (String(fresh.id) !== String(group.detailId)) throw new Error('后台对象ID变化，停止写入');
     if (stable(group.before) !== stable(group.expected)) {
-      await adapter.save(group.detailId, clone(group.expected));
+      const current = findPriority(fresh, { level_id: group.before.deal_level_id, priority_id: group.operations[0].priority_id });
+      await adapter.save(group.detailId, carryLiveCounters(group.expected, current.level));
       onSaved(group, 'saved');
     }
     assertLevel(await adapter.read(group.verticalId), group, group.expected);

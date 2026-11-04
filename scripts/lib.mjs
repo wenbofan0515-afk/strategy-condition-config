@@ -30,6 +30,28 @@ export function stable(value) {
     ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
 }
 
+// These API response counters change while workers process tasks; they are not configuration.
+export function levelConfiguration(level) {
+  const result = clone(level);
+  for (const object of [result, ...(result.priority || [])]) {
+    for (const key of ['task_nums', 'finish_task_nums', 'pending_task_nms']) delete object[key];
+  }
+  return result;
+}
+
+export function carryLiveCounters(expected, fresh) {
+  const result = clone(expected);
+  for (const [target, current] of [[result, fresh], ...(result.priority || []).map(p =>
+    [p, (fresh.priority || []).find(x => String(x.priority_id) === String(p.priority_id))])]) {
+    if (!current) throw new Error('回填实时计数时优先级缺失');
+    for (const key of ['task_nums', 'finish_task_nums', 'pending_task_nms']) {
+      if (Object.hasOwn(current, key)) target[key] = clone(current[key]);
+      else delete target[key];
+    }
+  }
+  return result;
+}
+
 export function allLevels(detail) {
   return [
     ...(detail.level_ordinary?.data || []),
