@@ -3,9 +3,12 @@ name: strategy-condition-config
 description: Configure and audit ShiHuo task-distribution strategy conditions, processing levels, priorities, channel collections, mixed queues, and Feishu registration. Use for requests involving task distribution configuration, priority conditions, channel IDs, latest goods IDs, mixed-queue references, screenshots, or restoring handlers.
 metadata:
   short-description: 识货策略条件配置与验收
+  version: "1.1.0"
 ---
 
 # 策略条件配置
+
+当前版本：**v1.1.0**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；用户询问版本时核对实际安装包，不能仅凭远端版本认定已更新。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
 
 用于把用户提供的专项需求转换为后台处理等级/优先级配置，并完成写前确认、最小字段修改、写后回读和飞书登记。
 
@@ -41,7 +44,7 @@ metadata:
 - 三处结构缺失或字段覆盖不完整时停止通用写入，不初始化空对象、不猜测重建。整等级保存前检查所有同级优先级；按原快照和 patch 重建完整预期，禁止仅凭保存成功或 expected 相等判定完成。具体见失败防复发文档。
 - `商品渠道数量` (`supplier_nums`) 和 `商品 SKU 平均渠道数` (`goods_sku_avg_bind_num_opt`) 是不同字段，不能按名称相似替换。
 - 商品 ID 只以最新飞书批次为输入；历史 ID 默认保留，不能用旧快照覆盖线上配置。
-- 处理等级顺序、优先级顺序和混排引用是独立对象；保存优先级不会自动更新混排。
+- 处理等级顺序、优先级顺序和混排引用是独立对象；普通等级保存可能自动删除部分引用或更新来源名称，但不保证补齐新增引用与顺序，必须重新读取。混排写入前阅读 [mix-reference.md](references/mix-reference.md) 核实专用请求契约，禁止用普通等级保存封装代替。
 - 开混排垂类必须检查目标优先级引用和相对顺序；未开混排垂类不能为了补齐而新建混排。
 - 复制优先级/处理等级时保存非目标字段快照，确保排序、处理人、原有条件和其他优先级不变。
 - 不读取、打印、保存或复制 Cookie、SSO token、AK、密码、App Secret。
