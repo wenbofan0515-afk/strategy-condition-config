@@ -1,6 +1,6 @@
 # 策略条件配置 Skill
 
-当前版本：**[v1.1.0](https://github.com/wenbofan0515-afk/strategy-condition-config/tree/v1.1.0)**（2026-11-06）。
+当前版本：**[v1.1.1](https://github.com/wenbofan0515-afk/strategy-condition-config/tree/v1.1.1)**（2026-11-06）。
 
 用于识货任务分发策略的需求解析、配置预检、条件修改和写后验收。支持普通条件完整性检查、混排引用核对和飞书截图登记流程。具体能力边界见 [SKILL.md](SKILL.md)，各版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -9,12 +9,14 @@
 在 Codex 中发送：
 
 ```text
-请使用 skill-installer，从 https://github.com/wenbofan0515-afk/strategy-condition-config 安装仓库根目录的 Skill，名称为 strategy-condition-config，版本使用 v1.1.0。
+请使用 skill-installer，从 https://github.com/wenbofan0515-afk/strategy-condition-config 安装仓库根目录的 Skill，名称为 strategy-condition-config，版本使用 v1.1.1。
 ```
 
 安装后在下一轮输入 `$strategy-condition-config`；为避免旧会话已经加载的规则干扰，建议新开会话。
 
 ## 从旧版更新
+
+从 v1.1.1 起，每个会话首次使用时检查新版，预检/只读审计入口也会输出更新提示。只提醒，不自动覆盖代码；断网不影响任务，但会说明无法确认最新版本。版本比较通过公开 VERSION 和对应版本标签完成，不上传任何配置。v1.1.0 及更早版本需先手动更新一次，才能获得后续提醒。
 
 GitHub 更新不会自动替换其他电脑已安装的 Skill。旧版用户在 Codex 中发送：
 

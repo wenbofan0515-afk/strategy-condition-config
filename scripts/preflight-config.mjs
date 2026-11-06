@@ -2,6 +2,9 @@
 import { pathToFileURL } from 'node:url';
 import { loadPlan, resolveRpaRoot, findPriority, applyPatch, fieldSummary, patchedKeys, stable } from './lib.mjs';
 import { prepareChanges } from './execute-plan.mjs';
+import { notifyUpdate } from './check-update.mjs';
+
+await notifyUpdate();
 
 const file = process.argv[2];
 if (!file) throw new Error('用法：node preflight-config.mjs <plan.json>');

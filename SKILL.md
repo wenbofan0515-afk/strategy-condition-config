@@ -3,12 +3,14 @@ name: strategy-condition-config
 description: Configure and audit ShiHuo task-distribution strategy conditions, processing levels, priorities, channel collections, mixed queues, and Feishu registration. Use for requests involving task distribution configuration, priority conditions, channel IDs, latest goods IDs, mixed-queue references, screenshots, or restoring handlers.
 metadata:
   short-description: 识货策略条件配置与验收
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # 策略条件配置
 
-当前版本：**v1.1.0**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；用户询问版本时核对实际安装包，不能仅凭远端版本认定已更新。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
+当前版本：**v1.1.1**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；用户询问版本时核对实际安装包，不能仅凭远端版本认定已更新。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
+
+每个会话首次使用时运行 `node scripts/check-update.mjs`（从实际安装目录执行），不要只在用户问版本时才检查。发现新版时向用户转述当前版本、最新版本和更新方式；同一会话同一新版只提醒一次。预检和只读审计入口也会将提示输出到 stderr，不污染 JSON 结果。检查最多等待6秒，不发送个人范围、凭据或后台配置；检查失败明确标记未知，不阻断任务、不冒充已是最新，也不自动更新代码。安装此机制之前的旧包不会凭空获得提醒，需要先更新一次。
 
 用于把用户提供的专项需求转换为后台处理等级/优先级配置，并完成写前确认、最小字段修改、写后回读和飞书登记。
 

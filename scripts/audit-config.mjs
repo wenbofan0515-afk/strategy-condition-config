@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 import { resolveRpaRoot, allLevels, conditionIssues } from './lib.mjs';
+import { notifyUpdate } from './check-update.mjs';
+
+await notifyUpdate();
 
 const requested = process.argv.slice(2).filter((x) => !x.startsWith('--'));
 const root = resolveRpaRoot();
