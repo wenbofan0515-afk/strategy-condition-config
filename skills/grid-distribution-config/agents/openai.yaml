@@ -1,4 +1,0 @@
-interface:
-  display_name: "兼职平台网格配置"
-  short_description: "合并网格汇总、等级配置、黑名单、真实截图登记和写后逐网格验收流程"
-  default_prompt: "使用 $grid-distribution-config 核对本月网格来源，先输出配置确认稿，再按确认范围配置并验收。"

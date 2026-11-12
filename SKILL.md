@@ -1,20 +1,22 @@
 ---
 name: strategy-condition-config
-description: Configure and audit ShiHuo task-distribution strategy conditions, processing levels, priorities, channel collections, mixed queues, and Feishu registration. Use for requests involving task distribution configuration, priority conditions, channel IDs, latest goods IDs, mixed-queue references, screenshots, or restoring handlers.
+description: Configure and audit ShiHuo task-distribution strategies and grids, including priority conditions, mixed queues, grid summaries, processing levels, blacklists and Feishu screenshot registration. Automatically choose the appropriate workflow.
 metadata:
-  short-description: 识货策略条件配置与验收
-  version: "1.1.1"
+  short-description: 识货策略与网格配置验收
+  version: "1.2.0"
 ---
 
-# 策略条件配置
+# 兼职平台策略与网格配置
 
-当前版本：**v1.1.1**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；用户询问版本时核对实际安装包，不能仅凭远端版本认定已更新。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
+当前版本：**v1.2.0**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；用户询问版本时核对实际安装包，不能仅凭远端版本认定已更新。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
 
 每个会话首次使用时运行 `node scripts/check-update.mjs`（从实际安装目录执行），不要只在用户问版本时才检查。发现新版时向用户转述当前版本、最新版本和更新方式；同一会话同一新版只提醒一次。预检和只读审计入口也会将提示输出到 stderr，不污染 JSON 结果。检查最多等待6秒，不发送个人范围、凭据或后台配置；检查失败明确标记未知，不阻断任务、不冒充已是最新，也不自动更新代码。安装此机制之前的旧包不会凭空获得提醒，需要先更新一次。
 
-用于把用户提供的专项需求转换为后台处理等级/优先级配置，并完成写前确认、最小字段修改、写后回读和飞书登记。
+## 自动选择工作流
 
-## 默认工作方式
+根据实际任务判断：优先级、筛选条件、处理人及混排引用使用下方策略流程；网格汇总、网格等级分配、黑名单对账或网格截图登记使用 [网格工作流](references/grid-workflow/workflow.md)。同时涉及两者时分别执行并验收；只读取当前任务所需的专项资料。网格等级分配与策略处理等级定义是不同对象，不得混用操作入口。
+
+## 策略任务的默认工作方式
 
 除非用户明确确认执行，先只读检查并输出配置确认稿。用户说“开始配置”“配置吧”“开始调整”等，视为确认当前已经明确的范围；如果范围、垂类、任务池、渠道集合或来源不明确，继续停在预检阶段并提出一个最关键的问题。
 
@@ -50,7 +52,7 @@ metadata:
 - 开混排垂类必须检查目标优先级引用和相对顺序；未开混排垂类不能为了补齐而新建混排。
 - 复制优先级/处理等级时保存非目标字段快照，确保排序、处理人、原有条件和其他优先级不变。
 - 不读取、打印、保存或复制 Cookie、SSO token、AK、密码、App Secret。
-- 后台浏览器 profile 固定使用项目 `level_config_rpa/.browser-profile`，不要误用上级目录或用户日常 Chrome。
+- 默认使用 Codex 内置浏览器后台会话；不要接管或重启用户日常 Chrome。可信项目适配器仅在当前环境和授权允许时使用。
 
 ## 任务规则路由
 

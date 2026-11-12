@@ -1,18 +1,10 @@
----
-name: grid-distribution-config
-description: 识货兼职平台网格月度汇总、处理等级1至4重建、黑名单对账与截图登记。Use when the user asks to summarize grid sheets, configure service grids, reconcile blacklist status, or register real platform screenshots; priority filter conditions belong to strategy-condition-config.
-metadata:
-  short-description: 兼职平台网格汇总、配置与黑名单验收
-  version: "1.0.0"
----
-
 # 网格配置
 
-版本以包内 [VERSION](VERSION) 为准，安装与升级见 [README.md](README.md)。首次使用运行 `node scripts/check-update.mjs`；只提示新版，不静默替换运行中的代码。私有仓库无本机 GitHub 登录时版本检查会报告未知，不能据此认定已是最新。
+本工作流属于统一 Skill，版本检查与安装说明见根目录的 SKILL.md 和 README.md。
 
 ## 工作边界
 
-本 Skill 合并网格来源汇总、等级分配、黑名单、复核及登记流程。不修改优先级筛选条件、处理等级定义、处理人或混排；这些属于策略条件配置。网格ID通常是“二级类目ID-品牌ID”，线下商品池仍以当前页面实际维度为准。
+本网格工作流涵盖来源汇总、等级分配、黑名单、复核及登记。不修改优先级筛选条件、处理等级定义、处理人或混排；这些属于策略工作流。网格ID通常是“二级类目ID-品牌ID”，线下商品池仍以当前页面实际维度为准。
 
 通用包不内置个人垂类、排除项、月份、业务数量、表格token、账号和登录态。优先复用本次需求及已授权本地范围；缺失时只问一个最关键的问题，不从账号可见范围推断负责范围。
 
@@ -45,10 +37,10 @@ metadata:
 脚本仅做本地规划与核验，不联网配置后台：
 
 ```bash
-node scripts/doctor.mjs
-node --test scripts/*.test.mjs
-node scripts/plan-grid.mjs /absolute/path/input.json /absolute/path/plan.json
-node scripts/verify-state.mjs /absolute/path/plan.json /absolute/path/current-state.json
+node references/grid-workflow/scripts/doctor.mjs
+node --test references/grid-workflow/scripts/*.test.mjs
+node references/grid-workflow/scripts/plan-grid.mjs /absolute/path/input.json /absolute/path/plan.json
+node references/grid-workflow/scripts/verify-state.mjs /absolute/path/plan.json /absolute/path/current-state.json
 ```
 
 输入格式与例子见 [plan-format.md](references/plan-format.md) 和 [assets/input-example.json](assets/input-example.json)。输入中的当前读取证据由 Codex 按来源规则收集；示例是假数据，不能直接写后台。
