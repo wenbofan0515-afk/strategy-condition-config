@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+.browser-profile/
+.env
+.env.*
+backups/
+evidence/
+state/
+*.zip
+*.tgz
+*.xlsx
+*.csv
+*.log

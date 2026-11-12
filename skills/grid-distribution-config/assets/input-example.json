@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "period": "209901",
+  "task_token": "example_task",
+  "task_pool": "示例服务网格池",
+  "verticals": ["示例垂类"],
+  "blacklist_mode": "explicit_nonclean",
+  "sources": [
+    {
+      "id": "example_source",
+      "sheet_name": "示例来源（假数据）",
+      "snapshot_id": "example-revision-1",
+      "complete": true,
+      "hidden_included": true,
+      "expected_record_count": 2,
+      "records": [
+        {"vertical": "示例垂类", "grid_id": "900000001-900000001", "grid_name": "示例网格甲", "level": "处理等级1", "row": 3},
+        {"vertical": "示例垂类", "grid_id": "900000002-900000002", "grid_name": "示例网格乙", "level": "不清理处理等级", "row": 4}
+      ]
+    }
+  ]
+}

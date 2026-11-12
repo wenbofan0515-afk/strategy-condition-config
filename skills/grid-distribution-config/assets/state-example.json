@@ -1,0 +1,13 @@
+{
+  "period": "209901",
+  "task_token": "example_task",
+  "task_pool": "示例服务网格池",
+  "verticals": ["示例垂类"],
+  "complete": true,
+  "active_total": 1,
+  "blacklist_total": 1,
+  "active": [{"vertical": "示例垂类", "grid_id": "900000001-900000001", "level": "处理等级1"}],
+  "blacklist": [{"vertical": "示例垂类", "grid_id": "900000002-900000002", "status": "enabled"}],
+  "protected_before_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "protected_after_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

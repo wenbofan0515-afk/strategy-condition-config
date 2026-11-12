@@ -4,6 +4,18 @@
 
 用于识货任务分发策略的需求解析、配置预检、条件修改和写后验收。支持普通条件完整性检查、混排引用核对和飞书截图登记流程。具体能力边界见 [SKILL.md](SKILL.md)，各版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
+## 网格配置 Skill
+
+本仓库同时提供 [grid-distribution-config v1.0.0](skills/grid-distribution-config/SKILL.md)，统一月度网格汇总、处理等级1至4、黑名单对账与真实截图登记。策略Skill保留在仓库根目录；网格Skill位于 `skills/grid-distribution-config`，单独安装，版本标签使用 `grid-v1.0.0`，不与策略Skill的 `v1.1.1` 混用。
+
+在Codex中发送：
+
+```text
+请使用 skill-installer，从 https://github.com/wenbofan0515-afk/strategy-condition-config 的 skills/grid-distribution-config 路径安装网格配置Skill，名称为 grid-distribution-config，版本使用 grid-v1.0.0。安装后检查包内VERSION和离线测试，不要操作线上后台。
+```
+
+能力边界和输入格式见 [网格Skill说明](skills/grid-distribution-config/README.md)。此包不携带个人垂类、业务源数据、账号或登录态。
+
 ## 安装
 
 在 Codex 中发送：
