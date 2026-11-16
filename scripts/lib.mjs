@@ -106,6 +106,7 @@ export function conditionIssues(priority) {
   for (const name of names) if (!isRecord(priority?.[name])) issues.push(`${name} 缺失或不是对象`);
   if (issues.length) return issues;
   const keys = new Set(names.flatMap((name) => Object.keys(priority[name])));
+  if (!keys.size) return ['三处条件同时为空对象，缺少可核实的原字段'];
   for (const key of keys) {
     // Full form defaults legitimately have no entry in the active condition map.
     if (!Object.hasOwn(priority.condition, key) && !hasValue(priority.form_data[key]) && !hasValue(priority.special_form_data[key])) continue;

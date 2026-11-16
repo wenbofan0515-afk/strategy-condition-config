@@ -11,7 +11,8 @@ test('数字版本比较，不接受无效版本', () => {
 test('旧版提示，同版及本地更高版不降级', async () => {
   const fetcher = async () => ({ ok: true, text: async () => '1.1.1\n' });
   assert.equal((await checkUpdate({ current: '1.1.0', fetcher })).status, 'update_available');
-  for (const current of ['1.1.1', '2.0.0']) assert.equal((await checkUpdate({ current, fetcher })).status, 'current');
+  assert.equal((await checkUpdate({ current: '1.1.1', fetcher })).status, 'current');
+  assert.equal((await checkUpdate({ current: '2.0.0', fetcher })).status, 'local_ahead');
 });
 test('断网、HTTP失败、无效版本及标签不一致只报告未知', async () => {
   for (const fetcher of [async () => { throw Error('network'); }, async () => ({ok:false}),

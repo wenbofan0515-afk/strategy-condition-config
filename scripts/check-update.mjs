@@ -28,7 +28,8 @@ export async function checkUpdate({ current, fetcher = fetch } = {}) {
     const latest = await read('main');
     // A main-branch edit alone is not a release; require the matching tag.
     if (await read(`v${latest.replace(/^v/, '')}`) !== latest) throw new Error('版本标签不一致');
-    return { status: compareVersions(current, latest) < 0 ? 'update_available' : 'current', current, latest,
+    const compared = compareVersions(current, latest);
+    return { status: compared < 0 ? 'update_available' : compared > 0 ? 'local_ahead' : 'current', current, latest,
       url: `https://github.com/wenbofan0515-afk/strategy-condition-config/tree/v${latest.replace(/^v/, '')}` };
   } catch {
     return { status: 'unavailable', current: current || null, message: '版本检查未完成，不能确认是否最新；可继续当前任务。' };
@@ -39,6 +40,7 @@ export async function notifyUpdate() {
   const result = await checkUpdate();
   if (result.status === 'update_available') console.error(`发现 strategy-condition-config 新版：v${result.current} → v${result.latest}。建议及时更新。可对 Codex 说：请更新此 Skill 到最新正式版，保留个人配置和登录态。${result.url}`);
   else if (result.status === 'unavailable') console.error(result.message);
+  else if (result.status === 'local_ahead') console.error(`本机 v${result.current} 高于远端已发布 v${result.latest}；不代表本地改动已发布或其他电脑已更新。`);
   return result;
 }
 

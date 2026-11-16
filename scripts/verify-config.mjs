@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadPlan, resolveRpaRoot, findPriority, applyPatch, stable } from './lib.mjs';
 import { assertLevel, assertPreparedGroup } from './execute-plan.mjs';
+import { strictPlatformApi } from './platform-api.mjs';
 
 const file = process.argv[2];
 if (!file) throw new Error('用法：node verify-config.mjs <plan.json>');
@@ -10,8 +11,10 @@ const plan = loadPlan(file); const root = resolveRpaRoot();
 const snapshotIndex = process.argv.indexOf('--before');
 const snapshot = snapshotIndex < 0 ? null : JSON.parse(fs.readFileSync(process.argv[snapshotIndex + 1], 'utf8'));
 if (snapshot && stable(snapshot.plan) !== stable(plan)) throw new Error('快照计划与当前计划不一致');
-const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = await import(pathToFileURL(`${root}/src/browser_api.js`));
-const { LIST_PAGE_URL } = await import(pathToFileURL(`${root}/src/constants.js`));
+const transport = await import(pathToFileURL(`${root}/src/browser_api.js`));
+const constants = await import(pathToFileURL(`${root}/src/constants.js`));
+const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = strictPlatformApi(transport, constants);
+const { LIST_PAGE_URL } = constants;
 const session = await openBrowser({ userDataDir: `${root}/.browser-profile`, headless: true });
 const result = { task: plan.task, verification_scope: snapshot ? '完整处理等级与写前快照比较' : '仅目标条件，不证明非目标字段保持不变', verified: [], errors: [] };
 try {

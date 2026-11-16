@@ -18,11 +18,14 @@
 | 不清理、全量反向匹配、黑名单审批与状态 | [blacklist.md](references/blacklist.md) |
 | B至F列、截图、配置状态与日期 | [registration.md](references/registration.md) |
 | 中断、数量不一致、历史脚本 | [recovery.md](references/recovery.md) |
+| 复用响应、分页、续接、黑名单记录校验函数 | [runtime-guards.md](references/runtime-guards.md) |
 
 ## 执行顺序
 
 1. 明确本期来源sheet、业务调整等级列、负责/排除垂类、任务token、任务池、黑名单口径和登记位置。月份每次重新确认；不套历史链接或数量。
 2. 使用 `feishu-sheets-user-edit` 及本人 `lark-cli --as user` 完整读取来源，包含隐藏行、筛选行、分页和真实末行；记录读取时点、revision、来源行号。
+
+   本地Excel/CSV按 [来源规则](references/source-summary.md) 直接读取指定文件/sheet，并记录SHA-256，不要求转飞书。
 3. 按垂类+网格归并。只有业务调整等级决定等级；任何来源为空、未知或不同均列异常，不以建议等级或关联输出等级兜底。评估结论为空不阻断。完整规则见来源汇总文档。
 4. 生成本期计划、各垂类等级1至4和不清理数量、异常与黑名单差异。只汇总或只检查的请求不操作后台。
 5. 后台只读预检：核实登录、垂类ID、任务池、四档真实等级ID、网格有效性、完整原配置与黑名单状态。未通过不删除、不上传。

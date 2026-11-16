@@ -2,13 +2,16 @@
 import { pathToFileURL } from 'node:url';
 import { resolveRpaRoot, allLevels, conditionIssues } from './lib.mjs';
 import { notifyUpdate } from './check-update.mjs';
+import { strictPlatformApi } from './platform-api.mjs';
 
 await notifyUpdate();
 
 const requested = process.argv.slice(2).filter((x) => !x.startsWith('--'));
 const root = resolveRpaRoot();
-const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = await import(pathToFileURL(`${root}/src/browser_api.js`));
-const { LIST_PAGE_URL } = await import(pathToFileURL(`${root}/src/constants.js`));
+const transport = await import(pathToFileURL(`${root}/src/browser_api.js`));
+const constants = await import(pathToFileURL(`${root}/src/constants.js`));
+const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = strictPlatformApi(transport, constants);
+const { LIST_PAGE_URL } = constants;
 const session = await openBrowser({ userDataDir: `${root}/.browser-profile`, headless: true });
 const result = { verticals: [], errors: [], condition_issues: [] };
 try {

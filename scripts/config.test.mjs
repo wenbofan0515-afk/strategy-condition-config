@@ -163,3 +163,19 @@ test('回读返回同样残缺的expected也不允许判定成功', async () => 
   await assert.rejects(executeGroups([group], { read: async () => detail(), save: async () => calls++ }), /独立重建/);
   assert.equal(calls, 0);
 });
+
+test('三处同时为空对象时不将残缺快照当作可保存优先级', () => {
+  const source = priority(30);
+  source.form_data = {}; source.special_form_data = {}; source.condition = {};
+  assert.throws(() => applyPatch(source, { channel_id: '1' }), /条件结构不完整/);
+});
+
+test('调用保存前先持久化意图；结果未知时只报告未知且不重试', async () => {
+  const events = []; let calls = 0;
+  await assert.rejects(executeGroups(prepare(), {
+    read: async () => detail(),
+    save: async () => { calls++; assert.equal(events[0], 'submitting'); throw Error('transport interrupted'); },
+  }, async (_, status) => { events.push(status); }), /transport interrupted/);
+  assert.equal(calls, 1);
+  assert.deepEqual(events, ['submitting', 'submission_unknown']);
+});

@@ -54,10 +54,17 @@ export async function executeGroups(groups, adapter, onSaved = () => {}) {
     if (String(fresh.id) !== String(group.detailId)) throw new Error('后台对象ID变化，停止写入');
     if (stable(group.before) !== stable(group.expected)) {
       const current = findPriority(fresh, { level_id: group.before.deal_level_id, priority_id: group.operations[0].priority_id });
-      await adapter.save(group.detailId, carryLiveCounters(group.expected, current.level));
-      onSaved(group, 'saved');
+      const payload = carryLiveCounters(group.expected, current.level);
+      await onSaved(group, 'submitting', {payload, started_at: new Date().toISOString()});
+      let response;
+      try { response = await adapter.save(group.detailId, payload); }
+      catch (error) {
+        await onSaved(group, 'submission_unknown', {message: '保存未取得可验证成功回执；须核查原请求，不自动重提', at: new Date().toISOString()});
+        throw error;
+      }
+      await onSaved(group, 'saved', {response, received_at: new Date().toISOString()});
     }
     assertLevel(await adapter.read(group.verticalId), group, group.expected);
-    onSaved(group, 'verified');
+    await onSaved(group, 'verified');
   }
 }

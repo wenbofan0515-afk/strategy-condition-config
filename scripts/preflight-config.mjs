@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { loadPlan, resolveRpaRoot, findPriority, applyPatch, fieldSummary, patchedKeys, stable } from './lib.mjs';
 import { prepareChanges } from './execute-plan.mjs';
 import { notifyUpdate } from './check-update.mjs';
+import { strictPlatformApi } from './platform-api.mjs';
 
 await notifyUpdate();
 
@@ -10,8 +11,10 @@ const file = process.argv[2];
 if (!file) throw new Error('用法：node preflight-config.mjs <plan.json>');
 const plan = loadPlan(file);
 const root = resolveRpaRoot();
-const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = await import(pathToFileURL(`${root}/src/browser_api.js`));
-const { LIST_PAGE_URL } = await import(pathToFileURL(`${root}/src/constants.js`));
+const transport = await import(pathToFileURL(`${root}/src/browser_api.js`));
+const constants = await import(pathToFileURL(`${root}/src/constants.js`));
+const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail } = strictPlatformApi(transport, constants);
+const { LIST_PAGE_URL } = constants;
 const session = await openBrowser({ userDataDir: `${root}/.browser-profile`, headless: true });
 const result = { task: plan.task, confirmed: plan.confirmation?.confirmed === true, operations: [], errors: [] };
 try {

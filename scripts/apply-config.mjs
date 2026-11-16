@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadPlan, resolveRpaRoot } from './lib.mjs';
 import { prepareChanges, executeGroups } from './execute-plan.mjs';
+import { strictPlatformApi } from './platform-api.mjs';
 
 const file = process.argv[2];
 const yes = process.argv.includes('--yes');
@@ -12,8 +13,10 @@ const plan = loadPlan(file);
 if (!yes) throw new Error('写入需要显式提供 --yes');
 if (plan.confirmation?.confirmed !== true) throw new Error('计划 confirmation.confirmed 不是 true，停止写入');
 const root = resolveRpaRoot();
-const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail, saveLevel } = await import(pathToFileURL(`${root}/src/browser_api.js`));
-const { LIST_PAGE_URL } = await import(pathToFileURL(`${root}/src/constants.js`));
+const transport = await import(pathToFileURL(`${root}/src/browser_api.js`));
+const constants = await import(pathToFileURL(`${root}/src/constants.js`));
+const { openBrowser, ensureLogin, getVerticalList, getVerticalDetail, saveLevel } = strictPlatformApi(transport, constants);
+const { LIST_PAGE_URL } = constants;
 const stamp = `${Date.now()}_${process.pid}`;
 const backupDir = path.join(root, 'backups'); fs.mkdirSync(backupDir, { recursive: true });
 const beforePath = path.join(backupDir, `${stamp}_strategy_condition_before.json`);
@@ -38,8 +41,12 @@ try {
   await executeGroups(groups, {
     read: (id) => getVerticalDetail(session.page, id),
     save: (id, level) => saveLevel(session.page, id, level),
-  }, (group, status) => {
-    for (const operation of group.operations) result.operations[operation.index][status] = true;
+  }, (group, status, evidence) => {
+    for (const operation of group.operations) {
+      const target = result.operations[operation.index];
+      target[status] = true;
+      if (evidence) { target.events ??= []; target.events.push({status, ...evidence}); }
+    }
     fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), { mode: 0o600 });
   });
 } catch (error) {
