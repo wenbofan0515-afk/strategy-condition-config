@@ -3,14 +3,16 @@ name: strategy-condition-config
 description: Configure and audit ShiHuo task-distribution strategies and grids, including priority conditions, mixed queues, grid summaries, processing levels, blacklists and Feishu screenshot registration. Automatically choose the appropriate workflow.
 metadata:
   short-description: 识货策略与网格配置验收
-  version: "1.2.1"
+  version: "1.2.2"
 ---
 
 # 兼职平台策略与网格配置
 
-当前版本：**v1.2.1**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；本地版本高于远端发布版本时单列为 `local_ahead`，不表示已发布。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
+当前版本：**v1.2.2**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)，安装和升级见 [README.md](README.md)。GitHub 更新不会自动更新本机；本地版本高于远端发布版本时单列为 `local_ahead`，不表示已发布。升级须显式执行，保留个人配置和登录态，不在配置任务中途静默替换代码。
 
 每个会话首次使用时运行 `node scripts/check-update.mjs`（从实际安装目录执行），不要只在用户问版本时才检查。发现新版时向用户转述当前版本、最新版本和更新方式；同一会话同一新版只提醒一次。预检和只读审计入口也会将提示输出到 stderr，不污染 JSON 结果。检查最多等待6秒，不发送个人范围、凭据或后台配置；检查失败明确标记未知，不阻断任务、不冒充已是最新，也不自动更新代码。安装此机制之前的旧包不会凭空获得提醒，需要先更新一次。
+
+安装、下载受阻、离线包或Windows验证时，先读 [安装与故障处理](references/installation.md)。技能文件安装、离线测试、后台适配器和登录状态分别报告；缺内部项目不代表文件安装失败。
 
 ## 自动选择工作流
 
@@ -77,7 +79,7 @@ metadata:
 
 Skill 可独立安装，但后台执行脚本不是独立后台客户端：需要另行提供现有 `level_config_rpa` 项目及其依赖和有效登录态。安装 Skill 不会自动安装该项目或取得权限，也不包含任何人的登录数据。
 
-先运行 `node scripts/doctor.mjs` 检查项目文件，再运行离线测试 `node --test scripts/*.test.mjs`。doctor 不触发登录、不访问后台。缺少依赖时先按首次准备文档选择路径，不临时重建认证链路。
+先运行 `node scripts/doctor.mjs` 分别检查技能文件、Node版本与可选适配器，再运行跨平台离线测试 `node scripts/run-tests.mjs`。doctor 不触发登录、不访问后台；技能完整时缺少适配器不返回安装失败。缺少依赖时先按首次准备文档选择路径，不临时重建认证链路。
 
 新增准备入口：`setup-environment.mjs` 只读检查 Node/Playwright/Chromium；明确使用可信项目后可加 `--install-deps` 准备依赖。`check-session.mjs` 只读验证列表与详情；用户允许显示登录窗口后加 `--login`，由本人登录独立会话，随后再无头回查。均不保存策略条件。详见首次准备文档。
 
