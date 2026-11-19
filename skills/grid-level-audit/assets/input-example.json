@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "period": "202611",
+  "repair_date_labels": false,
+  "source_scope_complete": true,
+  "verticals": ["鞋类", "图书"],
+  "sources": [
+    {
+      "id": "source-sheet-1",
+      "sheet_name": "11月网格策略",
+      "snapshot_id": "source-example-1",
+      "read_at": "2026-11-19T10:00:00+08:00",
+      "complete": true,
+      "hidden_included": true,
+      "expected_record_count": 4,
+      "records": [
+        {"row": 2, "vertical": "鞋类", "grid_id": "100-200", "level": "处理等级1", "grid_name": "示例一"},
+        {"row": 3, "vertical": "鞋类", "grid_id": "200-300", "level": "处理等级2", "grid_name": "示例二"},
+        {"row": 4, "vertical": "鞋类", "grid_id": "300-400", "level": "不清理处理等级", "grid_name": "示例三"},
+        {"row": 5, "vertical": "图书", "grid_id": "400-500", "level": "处理等级3", "grid_name": "示例四"}
+      ]
+    }
+  ],
+  "backend_snapshot": {
+    "snapshot_id": "backend-example-1",
+    "read_at": "2026-11-19T10:03:00+08:00",
+    "complete": true,
+    "verticals": [
+      {
+        "vertical": "鞋类",
+        "vertical_id": "12",
+        "complete": true,
+        "task_pools": [
+          {
+            "task_pool_id": "pool-color",
+            "task_pool_name": "渠道属性（配色）关联",
+            "task_pool_type": "grid_distribution",
+            "status": "active",
+            "complete": true,
+            "levels": [
+              {"level_id": "31", "level_name": "处理等级1", "complete": true, "total": 1, "grids": [{"grid_id": "100-200"}]},
+              {"level_id": "32", "level_name": "处理等级2", "complete": true, "total": 1, "grids": [{"grid_id": "200-300"}]},
+              {"level_id": "33", "level_name": "处理等级3", "complete": true, "total": 0, "grids": []},
+              {"level_id": "34", "level_name": "处理等级4", "complete": true, "total": 0, "grids": []}
+            ]
+          },
+          {
+            "task_pool_id": "pool-channel",
+            "task_pool_name": "渠道收录",
+            "task_pool_type": "channel_collection",
+            "status": "active",
+            "complete": true,
+            "levels": [
+              {"level_id": "41", "level_name": "处理等级1", "complete": true, "total": 1, "grids": [{"grid_id": "100-200"}]},
+              {"level_id": "42", "level_name": "处理等级2", "complete": true, "total": 1, "grids": [{"grid_id": "200-300"}]},
+              {"level_id": "43", "level_name": "处理等级3", "complete": true, "total": 0, "grids": []},
+              {"level_id": "44", "level_name": "处理等级4", "complete": true, "total": 0, "grids": []}
+            ]
+          },
+          {
+            "task_pool_id": "pool-old",
+            "task_pool_name": "历史任务池",
+            "task_pool_type": "grid_distribution",
+            "status": "inactive",
+            "complete": true,
+            "levels": []
+          },
+          {
+            "task_pool_id": "pool-store",
+            "task_pool_name": "店铺收录",
+            "task_pool_type": "store_collection",
+            "status": "active",
+            "complete": true,
+            "levels": []
+          }
+        ]
+      },
+      {
+        "vertical": "图书",
+        "vertical_id": "13",
+        "complete": true,
+        "task_pools": [
+          {
+            "task_pool_id": "pool-book-old",
+            "task_pool_name": "渠道属性（配色）关联",
+            "task_pool_type": "grid_distribution",
+            "status": "inactive",
+            "complete": true,
+            "levels": []
+          }
+        ]
+      }
+    ]
+  },
+  "blacklist_snapshot": {
+    "snapshot_id": "black-example-1",
+    "read_at": "2026-11-19T10:04:00+08:00",
+    "complete": true,
+    "total": 1,
+    "records": [
+      {"vertical": "鞋类", "grid_id": "300-400", "status": "enabled"}
+    ]
+  }
+}

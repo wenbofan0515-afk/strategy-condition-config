@@ -2,6 +2,10 @@
 
 当前版本：**v1.2.2**。一个入口自动识别策略条件、混排、网格汇总、等级分配、黑名单及截图登记任务。具体范围和安全规则见 [SKILL.md](SKILL.md)，变更见 [CHANGELOG.md](CHANGELOG.md)。本地修改或安装不表示已发布到 GitHub；版本检查的 `local_ahead` 表示本机高于远端已发布版本。
 
+## 独立网格处理等级校验
+
+仓库同时维护独立的 `grid-level-audit` Skill，位于 [skills/grid-level-audit](skills/grid-level-audit)。它只读核对本期网格策略汇总表、各垂类已启用任务池中的网格处理等级和分发系统黑名单，排除店铺收录任务池并保留渠道收录类任务池。该 Skill 使用独立版本和 Release 标签 `grid-level-audit-v版本`，公司 SkillHub 也单独发布。
+
 ## 安装或更新
 
 在 Codex 中发送：

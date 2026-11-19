@@ -1,0 +1,4 @@
+interface:
+  display_name: "兼职平台网格处理等级校验"
+  short_description: "校验各垂类任务池网格处理等级和分发黑名单"
+  default_prompt: "使用 $grid-level-audit，按本期网格策略汇总表核对各垂类已启用任务池的网格处理等级一致性，并独立检查不清理网格的分发黑名单状态。"
