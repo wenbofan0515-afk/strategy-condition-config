@@ -3,12 +3,12 @@ name: grid-level-audit
 description: 只读校验识货兼职平台各垂类已启用任务池中的网格处理等级一致性，并核对分发系统黑名单与本期网格策略汇总表。Use when the user asks to inspect grid-to-processing-level mappings, compare task pools, or verify non-clean grids and blacklist status.
 metadata:
   short-description: 兼职平台网格处理等级与黑名单校验
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # 网格处理等级一致性校验
 
-当前版本：**v1.0.0**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)。本 Skill 是独立的只读校验入口，沿用 `strategy-condition-config` 的版本检查、安装、测试和发布约定。
+当前版本：**v1.0.1**。版本来源为包内 `VERSION`，更新内容见 [CHANGELOG.md](CHANGELOG.md)。本 Skill 是独立的只读校验入口，沿用 `strategy-condition-config` 的版本检查、安装、测试和发布约定。
 
 每次会话首次使用时，从实际安装目录运行 `node scripts/check-update.mjs`。检查本地版本、GitHub 正式版本、独立 Release 标签和公司 SkillHub 最新版本。发现新版时报告当前版本、最新版本和更新方式，按现有 Skill 的备份、下载、校验和安装流程更新，不在业务校验过程中热替换代码。检查失败标记为未知，不把未知状态当作已是最新，也不阻断当前只读校验。
 
@@ -30,6 +30,7 @@ metadata:
 
 - 正式分类为“店铺收录”的任务池排除在本次校验之外。
 - 渠道收录、商品渠道收录、渠道属性（配色）关联和其他实际任务池保留。
+- 商品关联任务、线下商品池各自按实际版本汇总，每垂类每类一行。普通版为一级类目＋品牌，服务网格版为二级类目＋品牌。
 - 某垂类没有启用任务池时，记录为“无启用任务池”，不把它伪造成配置通过。
 - 任务池存在且已启用，但处理等级读取不完整或只返回部分网格时，标记为读取不完整或配置缺失。
 

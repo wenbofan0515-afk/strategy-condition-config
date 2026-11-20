@@ -122,3 +122,30 @@ test('后台分页不闭合会进入未知状态', () => {
   assert.equal(result.status, 'unknown');
   assert.ok(result.issues.some(item => item.type === 'backend_incomplete'));
 });
+
+test('同垂类普通版和服务网格版归并，普通版不产生服务网格缺失', () => {
+  const input = loadFixture();
+  const color = pool(input);
+  color.task_pool_name = '商品关联任务';
+  color.levels[0].grids[0].grid_id = '一级类目-示例品牌';
+  const vertical = input.backend_snapshot.verticals.find(item => item.vertical === '鞋类');
+  const service = { task_pool_id: 'pool-service', task_pool_name: '商品关联任务-服务网格', status: 'inactive', complete: true };
+  vertical.task_pools.push(service);
+  const result = auditGridLevels(input);
+  const shoe = result.verticals.find(item => item.vertical === '鞋类');
+  const group = shoe.task_pool_summary.find(item => item.family === '商品关联任务');
+  assert.equal(group.status, 'active');
+  assert.equal(group.selected_task_pool_id, color.task_pool_id);
+  assert.equal(group.variants.length, 2);
+  assert.equal(shoe.cross_pool_consistent, null);
+  assert.equal(result.status, 'pending');
+  assert.equal(result.issues.some(issue => issue.type === 'missing_grid_in_pool'), false);
+
+  service.status = 'active';
+  service.levels = structuredClone(pool(loadFixture()).levels);
+  const conflict = auditGridLevels(input);
+  const disputed = conflict.verticals[0].task_pool_summary.find(item => item.family === '商品关联任务');
+  assert.equal(disputed.status, 'conflict');
+  assert.equal(disputed.selected_task_pool_id, null);
+  assert.ok(conflict.issues.some(issue => issue.type === 'task_pool_variant_conflict'));
+});

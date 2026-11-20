@@ -35,6 +35,42 @@ function buildExpected(input) {
   return expected;
 }
 
+// Independent interpretation of the two mutually exclusive backend pairs.
+const pairedNames = new Map([
+  ['商品关联任务', ['商品关联任务', 'primary_category_brand']],
+  ['商品关联任务-服务网格', ['商品关联任务', 'service_grid']],
+  ['线下商品池(新)', ['线下商品池', 'primary_category_brand']],
+  ['线下商品池（新）', ['线下商品池', 'primary_category_brand']],
+  ['渠道维度线下商品池', ['线下商品池', 'primary_category_brand']],
+  ['线下商品池-服务网格', ['线下商品池', 'service_grid']],
+]);
+
+function verifyTaskPoolSummary(pools, summary) {
+  if (!Array.isArray(summary)) return false;
+  const groups = new Map();
+  for (const pool of pools) {
+    if (taskPoolExcluded(pool)) continue;
+    const name = pool.task_pool_name.trim();
+    const pair = pairedNames.get(name);
+    const family = pair?.[0] ?? name;
+    const key = pair ? `pair:${family}` : `pool:${pool.task_pool_id}`;
+    if (!groups.has(key)) groups.set(key, { family, variants: [] });
+    groups.get(key).variants.push({
+      task_pool_id: pool.task_pool_id,
+      task_pool_name: name,
+      config_grain: pair?.[1] ?? pool.config_grain ?? 'service_grid',
+      status: pool.status,
+    });
+  }
+  const shape = group => JSON.stringify([group.family, group.status, group.selected_task_pool_id, group.variants.map(v => JSON.stringify([v.task_pool_id, v.task_pool_name, v.config_grain, v.status])).sort()]);
+  const expected = [...groups.values()].map(group => {
+    const active = group.variants.filter(pool => pool.status === 'active');
+    const status = active.length > 1 ? 'conflict' : active.length === 1 ? 'active' : group.variants.every(pool => pool.status === 'inactive') ? 'inactive' : 'unknown';
+    return shape({ ...group, status, selected_task_pool_id: active.length === 1 ? active[0].task_pool_id : null });
+  }).sort();
+  return JSON.stringify(expected) === JSON.stringify(summary.map(shape).sort());
+}
+
 function buildActual(input) {
   const actual = new Map();
   const participation = new Map();
@@ -44,8 +80,9 @@ function buildActual(input) {
     for (const taskPool of vertical.task_pools || []) {
       if (taskPoolExcluded(taskPool)) continue;
       if (taskPool.status !== 'active') continue;
+      const grain = pairedNames.get(taskPool.task_pool_name.trim())?.[1] ?? taskPool.config_grain ?? 'service_grid';
       const byGrid = new Map();
-      for (const levelRecord of taskPool.levels || []) {
+      for (const levelRecord of grain === 'primary_category_brand' ? [] : taskPool.levels || []) {
         const level = normalizeLevel(levelRecord.level_name);
         if (!LEVELS.includes(level)) continue;
         for (const gridRecord of levelRecord.grids || []) {
@@ -62,6 +99,7 @@ function buildActual(input) {
         task_pool_id: taskPool.task_pool_id,
         task_pool_name: taskPool.task_pool_name,
         actual_by_grid: mapping,
+        config_grain: grain,
       });
     }
     actual.set(vertical.vertical, pools);
@@ -132,10 +170,12 @@ function verify(input, result) {
       .sort();
     if (JSON.stringify(resultExcluded) !== JSON.stringify(expectedExcluded)) errors.push(`结果排除任务池集合与后台快照不一致：${vertical}`);
 
-    const poolMappings = actualPools.map(pool => pool.actual_by_grid);
+    const inputPools = input.backend_snapshot.verticals.find(item => item.vertical === vertical)?.task_pools || [];
+    if (!verifyTaskPoolSummary(inputPools, resultVertical.task_pool_summary)) errors.push(`归并后任务池摘要与后台快照不一致：${vertical}`);
+    const poolMappings = actualPools.filter(pool => pool.config_grain !== 'primary_category_brand').map(pool => pool.actual_by_grid);
     const crossPoolDifferences = [];
     for (let index = 1; index < poolMappings.length; index += 1) crossPoolDifferences.push(...compareMaps(poolMappings[0], poolMappings[index]));
-    const expectedCrossPool = crossPoolDifferences.length === 0;
+    const expectedCrossPool = crossPoolDifferences.length ? false : poolMappings.length < actualPools.length ? null : true;
     if (resultVertical.cross_pool_consistent !== expectedCrossPool) errors.push(`结果跨任务池一致性与后台快照不一致：${vertical}`);
     checks.push({ name: `独立复核${vertical}`, passed: errors.length === 0 });
   }
@@ -156,7 +196,7 @@ function verify(input, result) {
   checks.push({ name: '独立复核黑名单状态', passed: errors.length === 0 });
 
   const independentMismatch = errors.length > 0;
-  if (!independentMismatch && !['passed', 'not_applicable'].includes(result.status)) errors.push(`结果状态与独立复核不一致：${result.status}`);
+  if (!independentMismatch && !['passed', 'not_applicable'].includes(result.status) && !(result.status === 'pending' && [...actual.values()].flat().some(pool => pool.config_grain === 'primary_category_brand'))) errors.push(`结果状态与独立复核不一致：${result.status}`);
   if (independentMismatch && result.status === 'passed') errors.push('结果报告为passed但独立复核发现差异');
   return { schema_version: 1, kind: 'grid-level-audit-verification', passed: errors.length === 0, checks, errors, active_task_pools: Object.fromEntries(participation) };
 }

@@ -118,3 +118,5 @@ Markdown 报告按垂类和任务池展示：
 - 读取不完整、待核验和未知限制
 
 数量、状态和差异均从 JSON 结果生成，不在 Markdown 中另行计算。
+
+汇总使用 `verticals[].task_pool_summary`，每个垂类内两对任务池分别各占一行。记录 `family`、`status`、`selected_task_pool_id` 及各后台版本的粒度和状态。明细引用实际任务池 ID。`cross_pool_consistent` 为 `null` 表示含未建立服务网格映射的任务池，可比任务池未发现差异。

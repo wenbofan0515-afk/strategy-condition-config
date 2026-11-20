@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { grainLabel, summarizeTaskPools, taskPoolScope } from './task-pool-scope.mjs';
 
 export const LEVELS = ['处理等级1', '处理等级2', '处理等级3', '处理等级4'];
 export const BLACKLIST_LEVEL = '不清理处理等级';
@@ -9,6 +10,7 @@ export const PENDING_ISSUES = new Set([
   'blacklist_incomplete',
   'blacklist_pending',
   'pending_blacklist_conflict',
+  'pool_grain_not_comparable',
 ]);
 export const UNCERTAIN_ISSUES = new Set([
   'source_invalid',
@@ -163,6 +165,7 @@ function collectPoolActual(taskPool, vertical, issues) {
     task_pool_name: text(taskPool.task_pool_name),
     task_pool_type: text(taskPool.task_pool_type) || null,
     status: text(taskPool.status),
+    config_grain: taskPoolScope(taskPool.task_pool_name, taskPool.config_grain).grain,
     counts: Object.fromEntries(LEVELS.map(level => [level, 0])),
     actual_by_grid: {},
     grid_levels: {},
@@ -202,6 +205,7 @@ function collectPoolActual(taskPool, vertical, issues) {
       continue;
     }
     result.counts[level] = levelRecord.grids.length;
+    if (result.config_grain === 'primary_category_brand') continue;
     const localIds = new Set();
     for (const gridRecord of levelRecord.grids) {
       const grid = normalizeGrid(gridRecord?.grid_id);
@@ -394,6 +398,7 @@ function buildVerticalResult(vertical, expectedMap, provenance, backendVertical,
   const activeTaskPools = [];
   const inactiveTaskPools = [];
   const excludedTaskPools = [];
+  const unresolvedTaskPools = [];
   const taskPools = Array.isArray(backendVertical?.task_pools) ? backendVertical.task_pools : [];
   for (const taskPool of taskPools) {
     const exclusion = isExcludedTaskPool(taskPool);
@@ -405,11 +410,27 @@ function buildVerticalResult(vertical, expectedMap, provenance, backendVertical,
     } else if (taskPool.status === 'inactive') {
       inactiveTaskPools.push(descriptor);
     } else {
+      unresolvedTaskPools.push(descriptor);
       allIssues.push(issue('backend_incomplete', { vertical, task_pool_id: descriptor.task_pool_id, message: '任务池启用状态未知' }));
     }
   }
-  for (const pool of activeTaskPools) comparePoolToExpected(pool, expectedMap, provenance, vertical, allIssues);
-  const crossPoolConsistent = comparePools(vertical, activeTaskPools, allIssues);
+  const taskPoolSummary = summarizeTaskPools([...activeTaskPools, ...inactiveTaskPools, ...unresolvedTaskPools]);
+  for (const group of taskPoolSummary) {
+    if (group.status === 'conflict') {
+      allIssues.push(issue('task_pool_variant_conflict', { vertical, task_pool_name: group.family, task_pool_ids: group.variants.filter(pool => pool.status === 'active').map(pool => pool.task_pool_id), message: '同一垂类的任务池两个版本均有启用证据' }));
+    }
+  }
+  const servicePools = activeTaskPools.filter(pool => pool.config_grain !== 'primary_category_brand');
+  for (const pool of activeTaskPools) {
+    if (pool.config_grain === 'primary_category_brand') {
+      pool.source_match = null;
+      allIssues.push(issue('pool_grain_not_comparable', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, message: '一级类目＋品牌配置缺少到本期服务网格的已确认映射' }));
+    } else {
+      comparePoolToExpected(pool, expectedMap, provenance, vertical, allIssues);
+    }
+  }
+  const compared = comparePools(vertical, servicePools, allIssues);
+  const crossPoolConsistent = compared && servicePools.length < activeTaskPools.length ? null : compared;
   const blacklistForVertical = {
     expected_nonclean: blacklist.expected_nonclean_for_vertical?.[vertical] || 0,
     enabled_nonclean: blacklist.enabled_nonclean_for_vertical?.[vertical] || 0,
@@ -428,6 +449,12 @@ function buildVerticalResult(vertical, expectedMap, provenance, backendVertical,
     active_task_pools: activeTaskPools.map(pool => ({ ...pool, issues: allIssues.filter(item => item.task_pool_id === pool.task_pool_id && item.vertical === vertical) })),
     inactive_task_pools: inactiveTaskPools,
     excluded_task_pools: excludedTaskPools,
+    task_pool_summary: taskPoolSummary.map(group => ({
+      family: group.family,
+      status: group.status,
+      selected_task_pool_id: group.selected?.task_pool_id ?? null,
+      variants: group.variants.map(({ task_pool_id, task_pool_name, config_grain, status }) => ({ task_pool_id, task_pool_name, config_grain, status })),
+    })),
     cross_pool_consistent: crossPoolConsistent,
     blacklist: blacklistForVertical,
     issue_counts: countIssues(localIssues),
@@ -477,7 +504,7 @@ export function auditGridLevels(input) {
       enabled_nonclean: blacklist.enabled_nonclean_for_vertical[verticalResult.vertical] || 0,
       mismatches: blacklist.mismatches.filter(item => item.vertical === verticalResult.vertical),
     };
-    const localIssues = issues.filter(item => item.vertical === verticalResult.vertical || (item.task_pool_id && verticalResult.active_task_pools.some(pool => pool.task_pool_id === item.task_pool_id)));
+    const localIssues = issues.filter(item => item.vertical === verticalResult.vertical);
     const hasUnknown = localIssues.some(item => UNCERTAIN_ISSUES.has(item.type));
     const hasFailure = localIssues.some(item => !PENDING_ISSUES.has(item.type) && !UNCERTAIN_ISSUES.has(item.type));
     const hasPending = localIssues.some(item => PENDING_ISSUES.has(item.type));
@@ -553,13 +580,18 @@ export function renderMarkdown(result) {
     '',
   ];
   for (const vertical of result.verticals || []) {
-    lines.push(`## ${vertical.vertical}`, '', `- 状态：${vertical.status}`, `- 跨任务池一致：${vertical.cross_pool_consistent ? '是' : '否'}`, `- 期望网格数：${Object.keys(vertical.expected_by_grid || {}).length}`, '');
-    lines.push('### 任务池', '', '| 状态 | 任务池 | 等级1 | 等级2 | 等级3 | 等级4 | 源表匹配 |', '| --- | --- | ---: | ---: | ---: | ---: | --- |');
-    for (const pool of vertical.active_task_pools || []) {
-      lines.push(`| active | ${pool.task_pool_name} | ${pool.counts['处理等级1']} | ${pool.counts['处理等级2']} | ${pool.counts['处理等级3']} | ${pool.counts['处理等级4']} | ${pool.source_match ? '是' : '否'} |`);
+    lines.push(`## ${vertical.vertical}`, '', `- 状态：${vertical.status}`, `- 跨任务池一致：${vertical.cross_pool_consistent === null ? '部分不可比' : vertical.cross_pool_consistent ? '是' : '否'}`, `- 期望网格数：${Object.keys(vertical.expected_by_grid || {}).length}`, '');
+    lines.push('### 任务池', '', '| 状态 | 任务池 | 实际版本 | 配置粒度 | 等级1 | 等级2 | 等级3 | 等级4 | 源表匹配 |', '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |');
+    const activeById = new Map((vertical.active_task_pools || []).map(pool => [pool.task_pool_id, pool]));
+    for (const group of vertical.task_pool_summary || []) {
+      const pool = activeById.get(group.selected_task_pool_id);
+      const names = group.variants.map(variant => variant.task_pool_name).join(' / ');
+      const counts = LEVELS.map(level => pool?.counts[level] ?? '—').join(' | ');
+      const state = { active: '已启用', inactive: '未启用', unknown: '待核验', conflict: '版本冲突' }[group.status];
+      const match = pool?.source_match === null ? '待确认映射' : pool ? pool.source_match ? '是' : '否' : '—';
+      lines.push(`| ${state} | ${group.family} | ${pool?.task_pool_name || names} | ${grainLabel(pool?.config_grain)} | ${counts} | ${match} |`);
     }
-    for (const pool of vertical.inactive_task_pools || []) lines.push(`| inactive | ${pool.task_pool_name} | - | - | - | - | 未参与校验 |`);
-    for (const pool of vertical.excluded_task_pools || []) lines.push(`| excluded | ${pool.task_pool_name} | - | - | - | - | 店铺收录排除 |`);
+    for (const pool of vertical.excluded_task_pools || []) lines.push(`| 排除 | ${pool.task_pool_name} | — | — | — | — | — | — | 店铺收录 |`);
     lines.push('', '### 黑名单', '', `- 期望不清理：${vertical.blacklist?.expected_nonclean ?? 0}`, `- 已开启不清理：${vertical.blacklist?.enabled_nonclean ?? 0}`, `- 黑名单差异：${vertical.blacklist?.mismatches?.length ?? 0}`, '');
   }
   lines.push('## 差异明细', '');
