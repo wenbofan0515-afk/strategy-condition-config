@@ -10,16 +10,17 @@
   "period": "202611",
   "repair_date_labels": false,
   "source_scope_complete": true,
+  "require_grid_validity": true,
   "verticals": ["鞋类"],
   "sources": [
     {
       "id": "source-sheet-1",
-      "sheet_name": "11月网格策略",
+      "sheet_name": "示例网格策略",
       "snapshot_id": "sha256-or-feishu-revision",
       "read_at": "2026-11-19T10:00:00+08:00",
       "complete": true,
       "hidden_included": true,
-      "expected_record_count": 2,
+      "expected_record_count": 1,
       "records": [
         {
           "row": 2,
@@ -86,14 +87,8 @@
     "snapshot_id": "black-1",
     "read_at": "2026-11-19T10:04:00+08:00",
     "complete": true,
-    "total": 1,
-    "records": [
-      {
-        "vertical": "鞋类",
-        "grid_id": "200-300",
-        "status": "enabled"
-      }
-    ]
+    "total": 0,
+    "records": []
   }
 }
 ```
@@ -168,3 +163,13 @@
 - 黑名单页面不可读时不以旧快照代替当前状态。
 - 不重复提交后台写请求，因为本 Skill 没有写入口。
 - 读取句柄失效时按内置浏览器恢复规则重新绑定并只读检查，恢复失败则停止线上读取。
+
+## 缺配证据与零配置
+
+新采集使用 `require_grid_validity: true`。老快照可以按原口径重放，交付时标明未做有效性核验。先对闭合的等级1–4分页比对，在已启用服务网格池内形成缺配候选，再按 **垂类、实际任务池 ID、网格 ID** 查询候选在该池是否可配置。使用已授权后台的网格校验（`gridCheck`）能力，核对当前接口契约。按同一粒度提交候选 ID，检查返回的有效、无效 ID 集合是否互斥、是否与请求闭合，并留存分页、时点及任务池证据。返空、超时、权限不足和分页不闭合均记为待核验。不得以别的任务池、商品是否在线或单纯未查到替代。
+
+在对应 `task_pools[]` 内填 `grid_validity_snapshot: {snapshot_id, read_at, complete, records}`，其中 `records` 为 `{grid_id, status}`，状态为 `valid`、`invalid` 或 `unknown`。`complete` 表示该批证据完整，候选未覆盖或重复返回时按未知处理。已确认无效的缺配候选保留在排除明细，跨池比较也按实际缺失侧的证据处理。已经配置的网格、错级、额外配置、重复配置及黑名单仍按独立证据校验。
+
+生效等级1–4均为空时，核对相同垂类和实际任务池的当前实时任务，使用同一网格粒度，排除其他版本和历史批次。自定义等级和关联人员只作线索。`live_task_snapshot: {snapshot_id, read_at, complete, task_count}` 有闭合的正任务数可确认已启用。缺证据或实时任务数为零时保留待核验。正式明确未启用的池记录为未启用。
+
+普通版按一级类目＋品牌核对。保留二级到一级的父子映射与源表行号。同一聚合键的源表子项涉及多个处理等级，或同时包含等级1–4和不清理时，保留整池待核验及样例，取得业务取档规则后再判。黑名单仍以其独立页面、源表及原网格键核对。

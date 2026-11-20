@@ -11,6 +11,8 @@ export const PENDING_ISSUES = new Set([
   'blacklist_pending',
   'pending_blacklist_conflict',
   'pool_grain_not_comparable',
+  'grid_validity_pending',
+  'pool_activation_pending',
 ]);
 export const UNCERTAIN_ISSUES = new Set([
   'source_invalid',
@@ -78,6 +80,9 @@ function validateInputEnvelope(input) {
   }
   if (input?.repair_date_labels !== undefined && typeof input.repair_date_labels !== 'boolean') {
     errors.push(issue('input_invalid', { message: 'repair_date_labels须为布尔值' }));
+  }
+  if (input?.require_grid_validity !== undefined && typeof input.require_grid_validity !== 'boolean') {
+    errors.push(issue('input_invalid', { message: 'require_grid_validity须为布尔值' }));
   }
   if (input?.source_scope_complete !== undefined && typeof input.source_scope_complete !== 'boolean') {
     errors.push(issue('input_invalid', { message: 'source_scope_complete须为布尔值' }));
@@ -235,7 +240,35 @@ function collectPoolActual(taskPool, vertical, issues) {
   return result;
 }
 
-function comparePoolToExpected(pool, expected, provenance, vertical, issues) {
+const hasReadEvidence = snapshot => snapshot?.complete === true
+  && Boolean(text(snapshot.snapshot_id)) && Number.isFinite(Date.parse(snapshot.read_at));
+
+function readGridValidity(snapshot) {
+  const records = new Map();
+  if (!hasReadEvidence(snapshot) || !Array.isArray(snapshot.records)) return records;
+  for (const record of snapshot.records) {
+    const { id } = normalizeGrid(record?.grid_id);
+    if (!id) continue;
+    const status = !records.has(id) && ['valid', 'invalid'].includes(record.status) ? record.status : 'unknown';
+    records.set(id, status);
+  }
+  return records;
+}
+
+function activation(taskPool) {
+  const levels = taskPool.levels;
+  const empty = taskPool.complete === true && Array.isArray(levels) && levels.length === 4
+    && new Set(levels.map(level => normalizeLevel(level?.level_name))).size === 4
+    && levels.every(level => LEVELS.includes(normalizeLevel(level?.level_name))
+      && level.complete === true && level.total === 0 && Array.isArray(level.grids) && level.grids.length === 0);
+  if (!empty || taskPool.status === 'inactive') return taskPool.status;
+  const live = taskPool.live_task_snapshot;
+  return hasReadEvidence(live) && Number.isSafeInteger(live.task_count) && live.task_count > 0 ? 'active' : 'pending_activation';
+}
+
+function comparePoolToExpected(pool, expected, provenance, vertical, issues, snapshot, requireValidity) {
+  const validity = readGridValidity(snapshot);
+  const poolIssueStart = issues.length;
   const actual = pool.actual_by_grid;
   for (const [grid, expectedLevel] of expected.entries()) {
     if (!expectedLevel) continue;
@@ -249,7 +282,16 @@ function comparePoolToExpected(pool, expected, provenance, vertical, issues) {
     }
     if (actualLevel === undefined) {
       const source = provenance.get(grid);
-      addPoolIssue(issues, 'missing_grid_in_pool', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, grid_id: grid, expected_level: expectedLevel, source_row: source?.row ?? null });
+      const detail = { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, grid_id: grid, expected_level: expectedLevel, source_row: source?.row ?? null };
+      const status = validity.get(grid);
+      const evidence = { snapshot_id: snapshot?.snapshot_id ?? null, read_at: snapshot?.read_at ?? null };
+      if (status === 'invalid') {
+        pool.invalid_grid_exclusions.push({ ...detail, ...evidence });
+      } else if (status !== 'valid' && requireValidity) {
+        addPoolIssue(issues, 'grid_validity_pending', { ...detail, ...evidence, message: '缺少该任务池下可确认的网格有效性证据' });
+      } else {
+        addPoolIssue(issues, 'missing_grid_in_pool', { ...detail, ...(status === 'valid' ? evidence : {}) });
+      }
     } else if (actualLevel !== expectedLevel) {
       const source = provenance.get(grid);
       addPoolIssue(issues, 'wrong_level_in_pool', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, grid_id: grid, expected_level: expectedLevel, actual_level: actualLevel, source_row: source?.row ?? null });
@@ -260,39 +302,40 @@ function comparePoolToExpected(pool, expected, provenance, vertical, issues) {
       addPoolIssue(issues, 'extra_grid_in_pool', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, grid_id: grid, actual_level: actualLevel });
     }
   }
-  pool.source_match = !issues.some(item => item.task_pool_id === pool.task_pool_id && ['missing_grid_in_pool', 'wrong_level_in_pool', 'extra_grid_in_pool'].includes(item.type));
+  const local = issues.slice(poolIssueStart);
+  const differs = local.some(item => item.type !== 'grid_validity_pending')
+    || issues.some(item => item.vertical === vertical && item.task_pool_id === pool.task_pool_id && item.type === 'duplicate_grid_in_pool');
+  pool.source_match = differs ? false : local.length ? null : true;
 }
 
 function comparePools(vertical, pools, issues) {
   if (pools.length < 2) return true;
-  const reference = pools[0];
+  const excluded = new Set(pools.flatMap(pool => pool.invalid_grid_exclusions.map(item => key(pool.task_pool_id, item.grid_id))));
+  const pending = new Set(issues.filter(item => item.type === 'grid_validity_pending' && item.vertical === vertical)
+    .map(item => key(item.task_pool_id, item.grid_id)));
+  const grids = new Set(pools.flatMap(pool => Object.keys(pool.actual_by_grid)));
   let consistent = true;
-  for (const current of pools.slice(1)) {
-    const grids = new Set([...Object.keys(reference.actual_by_grid), ...Object.keys(current.actual_by_grid)]);
-    for (const grid of sorted(grids)) {
-      const referenceLevel = reference.actual_by_grid[grid];
+  for (const grid of sorted(grids)) {
+    const reference = pools.find(pool => Object.hasOwn(pool.actual_by_grid, grid));
+    const referenceLevel = reference.actual_by_grid[grid];
+    for (const current of pools) {
+      if (current === reference) continue;
       const currentLevel = current.actual_by_grid[grid];
-      if (referenceLevel === undefined || currentLevel === undefined) {
-        consistent = false;
-        issues.push(issue('cross_pool_missing_grid', {
-          vertical,
-          reference_task_pool_id: reference.task_pool_id,
-          task_pool_id: current.task_pool_id,
-          grid_id: grid,
-          reference_level: referenceLevel ?? null,
-          actual_level: currentLevel ?? null,
-        }));
-      } else if (referenceLevel !== currentLevel) {
-        consistent = false;
-        issues.push(issue('cross_pool_level_conflict', {
-          vertical,
-          reference_task_pool_id: reference.task_pool_id,
-          task_pool_id: current.task_pool_id,
-          grid_id: grid,
-          reference_level: referenceLevel,
-          actual_level: currentLevel,
-        }));
+      if (currentLevel === undefined && excluded.has(key(current.task_pool_id, grid))) continue;
+      if (currentLevel === undefined && pending.has(key(current.task_pool_id, grid))) {
+        if (consistent) consistent = null;
+        continue;
       }
+      if (referenceLevel === currentLevel) continue;
+      consistent = false;
+      issues.push(issue(currentLevel === undefined ? 'cross_pool_missing_grid' : 'cross_pool_level_conflict', {
+        vertical,
+        reference_task_pool_id: reference.task_pool_id,
+        task_pool_id: current.task_pool_id,
+        grid_id: grid,
+        reference_level: referenceLevel,
+        actual_level: currentLevel ?? null,
+      }));
     }
   }
   return consistent;
@@ -314,8 +357,10 @@ function validateBlacklist(input, expected, activePools, issues) {
     return result;
   }
   const current = new Map();
+  const scope = new Set(input.verticals);
   for (const record of snapshot.records) {
     const vertical = text(record?.vertical);
+    if (vertical && !scope.has(vertical)) continue;
     const grid = normalizeGrid(record?.grid_id);
     if (!vertical || grid.error || !BLACKLIST_STATUSES.has(record?.status)) {
       issues.push(issue('blacklist_incomplete', { vertical: vertical || null, original_grid_id: record?.grid_id ?? null, status: record?.status ?? null, message: '黑名单记录残缺、网格ID异常或状态未知' }));
@@ -382,7 +427,8 @@ function validateBlacklist(input, expected, activePools, issues) {
 function statusFromIssues(issues, hasActivePools, hasExpectedData) {
   if (issues.some(item => item.type === 'input_invalid' || UNCERTAIN_ISSUES.has(item.type))) return 'unknown';
   if (issues.some(item => !PENDING_ISSUES.has(item.type))) return 'failed';
-  if (issues.length || !hasExpectedData) return hasActivePools ? 'pending' : 'unknown';
+  if (issues.length) return 'pending';
+  if (!hasExpectedData) return hasActivePools ? 'pending' : 'unknown';
   return hasActivePools ? 'passed' : 'not_applicable';
 }
 
@@ -393,25 +439,38 @@ function countIssues(issues) {
   }, {});
 }
 
-function buildVerticalResult(vertical, expectedMap, provenance, backendVertical, allIssues, blacklist) {
-  const localIssues = allIssues.filter(item => item.vertical === vertical || item.reference_task_pool_id && backendVertical?.task_pools?.some(pool => pool.task_pool_id === item.reference_task_pool_id) || item.task_pool_id && backendVertical?.task_pools?.some(pool => pool.task_pool_id === item.task_pool_id));
+function buildVerticalResult(vertical, expectedMap, provenance, backendVertical, allIssues, blacklist, requireValidity) {
   const activeTaskPools = [];
   const inactiveTaskPools = [];
   const excludedTaskPools = [];
   const unresolvedTaskPools = [];
+  const validityByPool = new Map();
   const taskPools = Array.isArray(backendVertical?.task_pools) ? backendVertical.task_pools : [];
   for (const taskPool of taskPools) {
     const exclusion = isExcludedTaskPool(taskPool);
     const descriptor = { task_pool_id: text(taskPool.task_pool_id) || null, task_pool_name: text(taskPool.task_pool_name) || null, task_pool_type: text(taskPool.task_pool_type) || null, status: text(taskPool.status) || null };
     if (exclusion.excluded) {
       excludedTaskPools.push({ ...descriptor, reason: exclusion.reason });
-    } else if (taskPool.status === 'active') {
-      activeTaskPools.push(collectPoolActual(taskPool, vertical, allIssues));
-    } else if (taskPool.status === 'inactive') {
+      continue;
+    }
+    const status = activation(taskPool);
+    if (status === 'active') {
+      const pool = collectPoolActual({ ...taskPool, status }, vertical, allIssues);
+      const live = taskPool.live_task_snapshot;
+      if (hasReadEvidence(live)) pool.live_task_evidence = {
+        snapshot_id: live.snapshot_id, read_at: live.read_at, task_count: live.task_count,
+      };
+      pool.invalid_grid_exclusions = [];
+      activeTaskPools.push(pool);
+      validityByPool.set(pool.task_pool_id, taskPool.grid_validity_snapshot);
+    } else if (status === 'inactive') {
       inactiveTaskPools.push(descriptor);
     } else {
-      unresolvedTaskPools.push(descriptor);
-      allIssues.push(issue('backend_incomplete', { vertical, task_pool_id: descriptor.task_pool_id, message: '任务池启用状态未知' }));
+      unresolvedTaskPools.push({ ...descriptor, status: 'unknown' });
+      allIssues.push(issue(status === 'pending_activation' ? 'pool_activation_pending' : 'backend_incomplete', {
+        vertical, task_pool_id: descriptor.task_pool_id, task_pool_name: descriptor.task_pool_name,
+        message: status === 'pending_activation' ? '等级配置为零，缺少该任务池实时有任务的证据' : '任务池启用状态未知',
+      }));
     }
   }
   const taskPoolSummary = summarizeTaskPools([...activeTaskPools, ...inactiveTaskPools, ...unresolvedTaskPools]);
@@ -420,17 +479,21 @@ function buildVerticalResult(vertical, expectedMap, provenance, backendVertical,
       allIssues.push(issue('task_pool_variant_conflict', { vertical, task_pool_name: group.family, task_pool_ids: group.variants.filter(pool => pool.status === 'active').map(pool => pool.task_pool_id), message: '同一垂类的任务池两个版本均有启用证据' }));
     }
   }
-  const servicePools = activeTaskPools.filter(pool => pool.config_grain !== 'primary_category_brand');
+  const servicePools = activeTaskPools.filter(pool => pool.config_grain !== 'primary_category_brand'
+    && !allIssues.some(item => item.type === 'backend_incomplete' && item.vertical === vertical && item.task_pool_id === pool.task_pool_id));
   for (const pool of activeTaskPools) {
     if (pool.config_grain === 'primary_category_brand') {
       pool.source_match = null;
-      allIssues.push(issue('pool_grain_not_comparable', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, message: '一级类目＋品牌配置缺少到本期服务网格的已确认映射' }));
+      allIssues.push(issue('pool_grain_not_comparable', { vertical, task_pool_id: pool.task_pool_id, task_pool_name: pool.task_pool_name, message: '一级类目＋品牌的期望等级待确认，包括子类目多档及等级与不清理混合' }));
+    } else if (servicePools.includes(pool)) {
+      const snapshot = validityByPool.get(pool.task_pool_id);
+      comparePoolToExpected(pool, expectedMap, provenance, vertical, allIssues, snapshot, requireValidity || snapshot !== undefined);
     } else {
-      comparePoolToExpected(pool, expectedMap, provenance, vertical, allIssues);
+      pool.source_match = null;
     }
   }
   const compared = comparePools(vertical, servicePools, allIssues);
-  const crossPoolConsistent = compared && servicePools.length < activeTaskPools.length ? null : compared;
+  const crossPoolConsistent = compared === true && (servicePools.length < activeTaskPools.length || unresolvedTaskPools.length) ? null : compared;
   const blacklistForVertical = {
     expected_nonclean: blacklist.expected_nonclean_for_vertical?.[vertical] || 0,
     enabled_nonclean: blacklist.enabled_nonclean_for_vertical?.[vertical] || 0,
@@ -457,7 +520,7 @@ function buildVerticalResult(vertical, expectedMap, provenance, backendVertical,
     })),
     cross_pool_consistent: crossPoolConsistent,
     blacklist: blacklistForVertical,
-    issue_counts: countIssues(localIssues),
+    issue_counts: {},
   };
 }
 
@@ -495,7 +558,7 @@ export function auditGridLevels(input) {
     if (backendVertical.complete !== true) issues.push(issue('backend_incomplete', { vertical: backendVertical.vertical, message: '垂类任务池列表不完整' }));
     backendResults.set(text(backendVertical.vertical), backendVertical);
   }
-  const verticals = input.verticals.map(vertical => buildVerticalResult(vertical, expected[vertical], provenance[vertical], backendResults.get(vertical), issues, blacklistPlaceholder));
+  const verticals = input.verticals.map(vertical => buildVerticalResult(vertical, expected[vertical], provenance[vertical], backendResults.get(vertical), issues, blacklistPlaceholder, input.require_grid_validity === true));
   const activePools = verticals.flatMap(verticalResult => verticalResult.active_task_pools.map(pool => ({ ...pool, vertical: verticalResult.vertical })));
   const blacklist = validateBlacklist(input, expected, activePools, issues);
   for (const verticalResult of verticals) {
@@ -528,6 +591,7 @@ export function auditGridLevels(input) {
     active_task_pool_count: verticals.reduce((sum, item) => sum + item.active_task_pools.length, 0),
     inactive_task_pool_count: verticals.reduce((sum, item) => sum + item.inactive_task_pools.length, 0),
     excluded_task_pool_count: verticals.reduce((sum, item) => sum + item.excluded_task_pools.length, 0),
+    invalid_grid_exclusion_count: activePools.reduce((sum, pool) => sum + pool.invalid_grid_exclusions.length, 0),
     issue_count: issues.length,
     issue_counts: countIssues(issues),
   };
@@ -568,6 +632,7 @@ export function renderMarkdown(result) {
     `- 源表网格数：${result.summary?.source_grid_count ?? '未知'}`,
     `- active任务池数：${result.summary?.active_task_pool_count ?? '未知'}`,
     `- 差异数：${result.summary?.issue_count ?? '未知'}`,
+    `- 无效网格排除数：${result.summary?.invalid_grid_exclusion_count ?? '未知'}`,
     '',
     '## 读取证据',
     '',
@@ -588,7 +653,7 @@ export function renderMarkdown(result) {
       const names = group.variants.map(variant => variant.task_pool_name).join(' / ');
       const counts = LEVELS.map(level => pool?.counts[level] ?? '—').join(' | ');
       const state = { active: '已启用', inactive: '未启用', unknown: '待核验', conflict: '版本冲突' }[group.status];
-      const match = pool?.source_match === null ? '待确认映射' : pool ? pool.source_match ? '是' : '否' : '—';
+      const match = pool?.source_match === null ? '待核验' : pool ? pool.source_match ? '是' : '否' : '—';
       lines.push(`| ${state} | ${group.family} | ${pool?.task_pool_name || names} | ${grainLabel(pool?.config_grain)} | ${counts} | ${match} |`);
     }
     for (const pool of vertical.excluded_task_pools || []) lines.push(`| 排除 | ${pool.task_pool_name} | — | — | — | — | — | — | 店铺收录 |`);

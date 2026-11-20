@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { digest, LEVELS, BLACKLIST_LEVEL, normalizeGrid, normalizeLevel } from './grid-audit-core.mjs';
 
 const [, , inputPath, resultPath] = process.argv;
@@ -45,6 +46,31 @@ const pairedNames = new Map([
   ['线下商品池-服务网格', ['线下商品池', 'service_grid']],
 ]);
 
+function confirmedRead(snapshot) {
+  return snapshot?.complete === true && typeof snapshot.snapshot_id === 'string' && snapshot.snapshot_id.trim()
+    && !Number.isNaN(Date.parse(snapshot.read_at));
+}
+
+function participationStatus(pool) {
+  if (pool.status === 'inactive') return 'inactive';
+  const levels = Array.isArray(pool.levels) ? pool.levels : [];
+  const empty = pool.complete === true && levels.length === 4 && LEVELS.every(level => levels.some(row =>
+    normalizeLevel(row?.level_name) === level && row.complete === true && row.total === 0
+    && Array.isArray(row.grids) && row.grids.length === 0));
+  if (!empty) return pool.status === 'active' ? 'active' : 'unknown';
+  const live = pool.live_task_snapshot;
+  return confirmedRead(live) && Number.isSafeInteger(live.task_count) && live.task_count > 0 ? 'active' : 'unknown';
+}
+
+function missingDisposition(snapshot, grid, required) {
+  if (confirmedRead(snapshot) && Array.isArray(snapshot.records)) {
+    const records = snapshot.records.filter(record => normalizeGrid(record?.grid_id).id === grid);
+    if (records.length === 1 && records[0].status === 'invalid') return 'excluded';
+    if (records.length === 1 && records[0].status === 'valid') return 'missing_grid_in_pool';
+  }
+  return required || snapshot !== undefined ? 'grid_validity_pending' : 'missing_grid_in_pool';
+}
+
 function verifyTaskPoolSummary(pools, summary) {
   if (!Array.isArray(summary)) return false;
   const groups = new Map();
@@ -59,7 +85,7 @@ function verifyTaskPoolSummary(pools, summary) {
       task_pool_id: pool.task_pool_id,
       task_pool_name: name,
       config_grain: pair?.[1] ?? pool.config_grain ?? 'service_grid',
-      status: pool.status,
+      status: participationStatus(pool),
     });
   }
   const shape = group => JSON.stringify([group.family, group.status, group.selected_task_pool_id, group.variants.map(v => JSON.stringify([v.task_pool_id, v.task_pool_name, v.config_grain, v.status])).sort()]);
@@ -79,7 +105,7 @@ function buildActual(input) {
     const pools = [];
     for (const taskPool of vertical.task_pools || []) {
       if (taskPoolExcluded(taskPool)) continue;
-      if (taskPool.status !== 'active') continue;
+      if (participationStatus(taskPool) !== 'active') continue;
       const grain = pairedNames.get(taskPool.task_pool_name.trim())?.[1] ?? taskPool.config_grain ?? 'service_grid';
       const byGrid = new Map();
       for (const levelRecord of grain === 'primary_category_brand' ? [] : taskPool.levels || []) {
@@ -100,6 +126,7 @@ function buildActual(input) {
         task_pool_name: taskPool.task_pool_name,
         actual_by_grid: mapping,
         config_grain: grain,
+        snapshot: taskPool,
       });
     }
     actual.set(vertical.vertical, pools);
@@ -132,6 +159,10 @@ function verify(input, result) {
   const { actual, participation } = buildActual(input);
   const resultVerticals = new Map((result.verticals || []).map(vertical => [vertical.vertical, vertical]));
 
+  if (JSON.stringify([...resultVerticals.keys()].sort()) !== JSON.stringify([...input.verticals].sort())
+      || resultVerticals.size !== (result.verticals || []).length
+      || (result.issues || []).some(issue => issue.vertical && !input.verticals.includes(issue.vertical))) errors.push('结果包含范围外或重复垂类');
+  let exclusionCount = 0;
   for (const vertical of input.verticals) {
     const resultVertical = resultVerticals.get(vertical);
     if (!resultVertical) {
@@ -148,12 +179,34 @@ function verify(input, result) {
     const resultPoolIds = [...resultPools.keys()].sort();
     const actualPoolIds = actualPools.map(pool => pool.task_pool_id).sort();
     if (JSON.stringify(resultPoolIds) !== JSON.stringify(actualPoolIds)) errors.push(`结果active任务池集合与后台快照不一致：${vertical}`);
+    const absenceByPool = new Map();
     for (const pool of actualPools) {
       const resultPool = resultPools.get(pool.task_pool_id);
       if (!resultPool) continue;
       const resultMap = new Map(Object.entries(resultPool.actual_by_grid || {}));
       const differences = compareMaps(pool.actual_by_grid, resultMap);
       if (differences.length) errors.push(`结果任务池映射与后台快照不一致：${vertical}/${pool.task_pool_id}/${differences.join(',')}`);
+      const absence = new Map();
+      absenceByPool.set(pool.task_pool_id, absence);
+      if (pool.config_grain === 'primary_category_brand' || pool.snapshot.complete !== true
+        || !LEVELS.every(level => pool.snapshot.levels?.some(row => normalizeLevel(row.level_name) === level
+          && row.complete === true && row.total === row.grids?.length))) continue;
+      const exclusions = [];
+      const expectedIssues = [];
+      const validity = pool.snapshot.grid_validity_snapshot;
+      for (const [grid, level] of expectedMap) {
+        if (!LEVELS.includes(level) || pool.actual_by_grid.has(grid)) continue;
+        const disposition = missingDisposition(validity, grid, input.require_grid_validity === true);
+        absence.set(grid, disposition);
+        if (disposition === 'excluded') exclusions.push(JSON.stringify([grid, level, validity.snapshot_id, validity.read_at]));
+        else expectedIssues.push(JSON.stringify([grid, level, disposition]));
+      }
+      exclusionCount += exclusions.length;
+      const reportedExclusions = (resultPool.invalid_grid_exclusions || []).map(row => JSON.stringify([row.grid_id, row.expected_level, row.snapshot_id, row.read_at]));
+      const reportedIssues = (result.issues || []).filter(row => row.vertical === vertical && row.task_pool_id === pool.task_pool_id
+        && ['missing_grid_in_pool', 'grid_validity_pending'].includes(row.type)).map(row => JSON.stringify([row.grid_id, row.expected_level, row.type]));
+      if (JSON.stringify(exclusions.sort()) !== JSON.stringify(reportedExclusions.sort())) errors.push(`无效网格排除与证据不一致：${vertical}/${pool.task_pool_id}`);
+      if (JSON.stringify(expectedIssues.sort()) !== JSON.stringify(reportedIssues.sort())) errors.push(`缺配或待核验明细与证据不一致：${vertical}/${pool.task_pool_id}`);
     }
 
     const resultInactive = (resultVertical.inactive_task_pools || []).map(pool => pool.task_pool_id).sort();
@@ -172,14 +225,28 @@ function verify(input, result) {
 
     const inputPools = input.backend_snapshot.verticals.find(item => item.vertical === vertical)?.task_pools || [];
     if (!verifyTaskPoolSummary(inputPools, resultVertical.task_pool_summary)) errors.push(`归并后任务池摘要与后台快照不一致：${vertical}`);
-    const poolMappings = actualPools.filter(pool => pool.config_grain !== 'primary_category_brand').map(pool => pool.actual_by_grid);
-    const crossPoolDifferences = [];
-    for (let index = 1; index < poolMappings.length; index += 1) crossPoolDifferences.push(...compareMaps(poolMappings[0], poolMappings[index]));
-    const expectedCrossPool = crossPoolDifferences.length ? false : poolMappings.length < actualPools.length ? null : true;
+    const comparable = actualPools.filter(pool => pool.config_grain !== 'primary_category_brand');
+    let expectedCrossPool = comparable.length < actualPools.length || inputPools.some(pool =>
+      !taskPoolExcluded(pool) && participationStatus(pool) === 'unknown') ? null : true;
+    for (let i = 1; i < comparable.length; i += 1) {
+      for (const prior of comparable.slice(0, i)) {
+        const current = comparable[i];
+        for (const grid of compareMaps(prior.actual_by_grid, current.actual_by_grid)) {
+          const absent = [prior, current].find(pool => !pool.actual_by_grid.has(grid));
+          const disposition = absent && absenceByPool.get(absent.task_pool_id)?.get(grid);
+          if (disposition === 'excluded') continue;
+          if (disposition === 'grid_validity_pending') {
+            if (expectedCrossPool === true) expectedCrossPool = null;
+          } else expectedCrossPool = false;
+        }
+      }
+    }
     if (resultVertical.cross_pool_consistent !== expectedCrossPool) errors.push(`结果跨任务池一致性与后台快照不一致：${vertical}`);
     checks.push({ name: `独立复核${vertical}`, passed: errors.length === 0 });
   }
 
+  if ((result.summary?.invalid_grid_exclusion_count ?? 0) !== exclusionCount) errors.push('结果无效网格排除数量与证据不一致');
+  if (result.status === 'passed' && (result.issues || []).some(item => ['missing_grid_in_pool', 'grid_validity_pending', 'pool_activation_pending'].includes(item.type))) errors.push('结果报告为passed但含缺配或待核验');
   const blacklistRecords = input.blacklist_snapshot.records || [];
   const blacklistMap = new Map();
   for (const record of blacklistRecords) {
@@ -195,26 +262,27 @@ function verify(input, result) {
   }
   checks.push({ name: '独立复核黑名单状态', passed: errors.length === 0 });
 
-  const independentMismatch = errors.length > 0;
-  if (!independentMismatch && !['passed', 'not_applicable'].includes(result.status) && !(result.status === 'pending' && [...actual.values()].flat().some(pool => pool.config_grain === 'primary_category_brand'))) errors.push(`结果状态与独立复核不一致：${result.status}`);
-  if (independentMismatch && result.status === 'passed') errors.push('结果报告为passed但独立复核发现差异');
+  if (errors.length > 0 && result.status === 'passed') errors.push('结果报告为passed但独立复核发现差异');
   return { schema_version: 1, kind: 'grid-level-audit-verification', passed: errors.length === 0, checks, errors, active_task_pools: Object.fromEntries(participation) };
 }
 
-if (!inputPath || !resultPath) {
-  console.error('用法：node scripts/verify-grid-audit.mjs <input.json> <result.json>');
-  process.exitCode = 1;
-} else {
-  try {
-    const input = JSON.parse(fs.readFileSync(path.resolve(inputPath), 'utf8'));
-    const result = JSON.parse(fs.readFileSync(path.resolve(resultPath), 'utf8'));
-    const verification = verify(input, result);
-    console.log(JSON.stringify(verification, null, 2));
-    if (!verification.passed) process.exitCode = 1;
-  } catch (error) {
-    console.error(JSON.stringify({ kind: 'grid-level-audit-verification', passed: false, errors: [error.message] }, null, 2));
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  if (!inputPath || !resultPath) {
+    console.error('用法：node scripts/verify-grid-audit.mjs <input.json> <result.json>');
     process.exitCode = 1;
+  } else {
+    try {
+      const input = JSON.parse(fs.readFileSync(path.resolve(inputPath), 'utf8'));
+      const result = JSON.parse(fs.readFileSync(path.resolve(resultPath), 'utf8'));
+      const verification = verify(input, result);
+      console.log(JSON.stringify(verification, null, 2));
+      if (!verification.passed) process.exitCode = 1;
+    } catch (error) {
+      console.error(JSON.stringify({ kind: 'grid-level-audit-verification', passed: false, errors: [error.message] }, null, 2));
+      process.exitCode = 1;
+    }
   }
+
 }
 
 export { verify };

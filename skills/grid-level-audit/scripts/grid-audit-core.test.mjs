@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { auditGridLevels, normalizeGrid } from './grid-audit-core.mjs';
+import { verify } from './verify-grid-audit.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const examplePath = path.join(root, '..', 'assets', 'input-example.json');
@@ -148,4 +149,73 @@ test('同垂类普通版和服务网格版归并，普通版不产生服务网�
   assert.equal(disputed.status, 'conflict');
   assert.equal(disputed.selected_task_pool_id, null);
   assert.ok(conflict.issues.some(issue => issue.type === 'task_pool_variant_conflict'));
+});
+
+test('仅完整且有时点的有效性证据可以确认缺配或排除无效网格', () => {
+  const input = loadFixture();
+  input.require_grid_validity = true;
+  const task = pool(input);
+  task.levels[0].total = 0;
+  task.levels[0].grids = [];
+  const relevant = result => result.issues.filter(issue => issue.grid_id === '100-200');
+  assert.equal(relevant(auditGridLevels(input))[0]?.type, 'grid_validity_pending');
+  task.grid_validity_snapshot = {
+    snapshot_id: 'validity-1', read_at: '2026-11-20T10:00:00+08:00', complete: true,
+    records: [{ grid_id: '100-200', status: 'invalid' }],
+  };
+  const report = auditGridLevels(input);
+  assert.deepEqual(relevant(report), []);
+  assert.equal(report.summary.invalid_grid_exclusion_count, 1);
+  assert.equal(report.verticals[0].active_task_pools[0].invalid_grid_exclusions[0].snapshot_id, 'validity-1');
+  task.grid_validity_snapshot.records[0].status = 'valid';
+  assert.ok(relevant(auditGridLevels(input)).some(issue => issue.type === 'missing_grid_in_pool'));
+  task.grid_validity_snapshot.complete = false;
+  assert.equal(relevant(auditGridLevels(input))[0]?.type, 'grid_validity_pending');
+});
+
+test('垂类白名单同时约束源表、后台和黑名单，不将范围外开启网格判为额外黑名单', () => {
+  const input = loadFixture();
+  input.verticals = ['鞋类'];
+
+  input.blacklist_snapshot.records.push({ vertical: '图书', grid_id: '900-999', status: 'enabled' });
+  input.blacklist_snapshot.total += 1;
+  const result = auditGridLevels(input);
+  assert.equal(result.status, 'passed');
+  assert.equal(result.issues.some(issue => issue.vertical === '图书'), false);
+});
+
+test('生效配置为零时，完整的实时有任务证据确认启用，缺少证据则待核验', () => {
+  const input = loadFixture();
+  const task = pool(input);
+  for (const level of task.levels) Object.assign(level, { total: 0, grids: [] });
+  let result = auditGridLevels(input);
+  assert.equal(result.status, 'pending');
+  assert.ok(result.issues.some(issue => issue.type === 'pool_activation_pending'));
+  task.live_task_snapshot = { snapshot_id: 'live-1', read_at: '2026-11-20T10:00:00+08:00', complete: true, task_count: 0 };
+  assert.ok(auditGridLevels(input).issues.some(issue => issue.type === 'pool_activation_pending'));
+  task.live_task_snapshot.task_count = 2;
+  result = auditGridLevels(input);
+  assert.ok(result.issues.some(issue => issue.type === 'missing_grid_in_pool' && issue.task_pool_id === task.task_pool_id));
+});
+
+
+test('独立复核能识别无效网格证据和待核验结论被改写', () => {
+  const input = loadFixture();
+  input.require_grid_validity = true;
+  const task = pool(input);
+  Object.assign(task.levels[0], { total: 0, grids: [] });
+  const pending = auditGridLevels(input);
+  assert.equal(verify(input, pending).passed, true);
+  pending.issues = pending.issues.filter(item => item.type !== 'grid_validity_pending');
+  assert.equal(verify(input, pending).passed, false);
+
+  task.grid_validity_snapshot = {
+    snapshot_id: 'validity-1', read_at: '2026-11-20T10:00:00+08:00', complete: true,
+    records: [{ grid_id: '100-200', status: 'invalid' }],
+  };
+  const result = auditGridLevels(input);
+  assert.equal(verify(input, result).passed, true);
+  assert.equal(result.verticals[0].cross_pool_consistent, true);
+  result.verticals[0].active_task_pools[0].invalid_grid_exclusions[0].snapshot_id = 'wrong';
+  assert.equal(verify(input, result).passed, false);
 });
